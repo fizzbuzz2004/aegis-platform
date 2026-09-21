@@ -1,0 +1,6 @@
+{
+  "name": "backup_probe",
+  "version": "1.0.0",
+  "description": "Backup Integrity & Restore Verification",
+  "author": "Aegis Security"
+}

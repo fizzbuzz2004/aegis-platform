@@ -1,0 +1,6 @@
+{
+  "name": "registry_audit",
+  "version": "1.0.0",
+  "description": "OS Registry & Autostart Drift Audit",
+  "author": "Aegis Security"
+}
