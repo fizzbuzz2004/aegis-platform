@@ -112,3 +112,32 @@ def toggle_module(req: ToggleRequest):
     conn.commit()
     conn.close()
     return {"status": "success", "tenant_id": req.tenant_id, "module": req.module_name, "enabled": req.enable}
+
+@app.get("/api/v1/admin/results/{tenant_id}")
+def get_tenant_results(tenant_id: int):
+    """
+    Dashboard-Endpunkt für Systemhäuser:
+    Liefert alle gesammelten Agenten-Ergebnisse eines Mandanten chronologisch zurück.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT module_name, timestamp, findings 
+        FROM module_results 
+        WHERE tenant_id = ? 
+        ORDER BY timestamp DESC
+    """, (tenant_id,))
+    
+    results = []
+    for row in cur.fetchall():
+        row_dict = dict(row)
+        try:
+            row_dict["findings"] = json.loads(row_dict["findings"])
+        except json.JSONDecodeError:
+            row_dict["findings"] = []
+        results.append(row_dict)
+        
+    conn.close()
+    return {"status": "success", "tenant_id": tenant_id, "results": results}
