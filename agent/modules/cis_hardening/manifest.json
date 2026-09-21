@@ -1,0 +1,6 @@
+{
+  "name": "cis_hardening",
+  "version": "1.0.0",
+  "description": "L1 OS Hardening & Configuration Drift Audit",
+  "author": "Aegis Security"
+}
