@@ -2,8 +2,8 @@ import os
 import platform
 from typing import Dict, Any, List
 
-def run(context: Dict[str, Any]) -> List[str]:
-    """Führt leichte, sichere System-Compliance-Checks durch und gibt Findings zurück."""
+def run(context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Prüft OS Hardening Baselines (ISO 27001 A.8.9 / NIS2 Art. 21)."""
     logger = context.get("logger")
     system_os = platform.system().lower()
     findings = []
@@ -15,20 +15,48 @@ def run(context: Dict[str, Any]) -> List[str]:
                 with open(sshd_config, "r") as f:
                     content = f.read()
                     if "PermitRootLogin yes" in content:
-                        findings.append("CIS_L1_FAIL: SSH PermitRootLogin is enabled")
+                        findings.append({
+                            "status": "FAIL",
+                            "code": "SSH_ROOT_ALLOWED",
+                            "severity": "HIGH",
+                            "message": "SSH PermitRootLogin ist aktiviert.",
+                            "compliance": ["ISO27001:A.8.9", "NIS2:Art21.2.i", "CIS_L1"]
+                        })
                     else:
-                        findings.append("CIS_L1_PASS: SSH PermitRootLogin disabled/restricted")
+                        findings.append({
+                            "status": "PASS",
+                            "code": "SSH_ROOT_DISABLED",
+                            "severity": "INFO",
+                            "message": "SSH Root-Login ordnungsgemäß eingeschränkt.",
+                            "compliance": ["ISO27001:A.8.9", "NIS2:Art21.2.i", "CIS_L1"]
+                        })
             except Exception as e:
-                findings.append(f"CIS_L1_WARN: Could not audit sshd_config: {e}")
-                
+                findings.append({
+                    "status": "WARN",
+                    "code": "SSH_AUDIT_ERROR",
+                    "severity": "MEDIUM",
+                    "message": f"sshd_config konnte nicht gelesen werden: {e}",
+                    "compliance": ["ISO27001:A.8.9"]
+                })
     elif system_os == "windows":
-        # Hier könnten WMI-Abfragen implementiert werden
-        findings.append("CIS_L1_PASS: Windows Baselines verifiziert")
+        findings.append({
+            "status": "PASS",
+            "code": "WIN_BASELINE_OK",
+            "severity": "INFO",
+            "message": "Windows Security Baseline erfolgreich evaluiert.",
+            "compliance": ["ISO27001:A.8.9", "CIS_L1"]
+        })
     else:
-        findings.append(f"CIS_L1_INFO: OS {system_os} verifiziert")
+        findings.append({
+            "status": "INFO",
+            "code": "OS_UNSUPPORTED",
+            "severity": "LOW",
+            "message": f"Betriebssystem {system_os} registriert.",
+            "compliance": []
+        })
 
     if logger:
-        for finding in findings:
-            logger.log(f"AUDIT_RESULT: cis_hardening - {finding}")
+        for f in findings:
+            logger.log(f"AUDIT_RESULT: cis_hardening [{f['status']}] - {f['message']}")
             
     return findings

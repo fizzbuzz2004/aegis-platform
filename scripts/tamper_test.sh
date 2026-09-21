@@ -12,19 +12,20 @@ sleep 2
 
 trap "kill $SERVER_PID 2>/dev/null || true" EXIT
 
-echo "=== 2. Führe Agenten-Sync-Lauf aus ==="
-PYTHONPATH=. python3 agent/cli/cli.py status
-
-# Nutzen des neuen RMM-Modus (--once) statt des manuellen Imports
+echo "=== 2. Führe Agenten im RMM-Modus (--once) aus ==="
 PYTHONPATH=. python3 agent/main.py --once
 
 echo "=== 3. Prüfe WORM-Log-Chain (Soll: VALID) ==="
 PYTHONPATH=. python3 agent/cli/cli.py verify
 
 echo "=== 4. Manipuliere Log-Datei (Injektion gefälschter Daten) ==="
-echo "badhash000|0000000000000000000000000000000000000000000000000000000000000000|12345|FORGED_ENTRY" >> /tmp/aegis_chain.dat
+CHAIN_FILE="/var/log/aegis/aegis_chain.dat"
+if [ ! -f "$CHAIN_FILE" ]; then
+    CHAIN_FILE="/tmp/aegis_chain.dat"
+fi
+echo "badhash000|0000000000000000000000000000000000000000000000000000000000000000|2026-09-21T12:00:00Z|FORGED_ENTRY" >> "$CHAIN_FILE"
 
-echo "=== 5. Prüfe WORM-Log-Chain erneut (Soll: ERKENNUNG / FEHLER) ==="
+echo "=== 5. Prüfe WORM-Log-Chain erneut (Soll: ERKENNUNG) ==="
 if PYTHONPATH=. python3 agent/cli/cli.py verify; then
     echo "❌ FEHLER: Tampering wurde NICHT erkannt!"
     exit 1

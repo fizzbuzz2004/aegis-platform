@@ -1,34 +1,52 @@
 import os
 import time
+import platform
 from typing import Dict, Any, List
 
-def run(context: Dict[str, Any]) -> List[str]:
-    """Prüft Backup-Verzeichnisse auf Aktualität (MVP-Ansatz für Systemhäuser)."""
+def run(context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Prüft Backup-Protokolle auf Aktualität (ISO 27001 A.8.13 / NIS2 Art. 21)."""
     logger = context.get("logger")
     findings = []
     
-    # Beispielhafte Pfade, die von gängigen Backup-Tools genutzt werden
-    # Im echten MVP: Konfigurierbar über Control-Plane Parameter machen
-    backup_paths = [
-        "/var/log/backup.log",
-        "C:\\BackupLogs\\latest.log"
-    ]
+    if platform.system().lower() == "windows":
+        backup_paths = ["C:\\BackupLogs\\latest.log", "C:\\ProgramData\\Veeam\\Backup.log"]
+    else:
+        backup_paths = ["/var/log/backup.log", "/var/log/syslog"]
     
-    max_age_seconds = 86400 * 2  # Warnen, wenn Backup älter als 48 Stunden ist
+    max_age_seconds = 86400 * 2  # Max. 48 Stunden alt
     now = time.time()
     
     for path in backup_paths:
         if os.path.exists(path):
             file_age = now - os.path.getmtime(path)
             if file_age > max_age_seconds:
-                findings.append(f"BACKUP_FAIL: Backup-Log '{path}' ist veraltet ({int(file_age/3600)} Stunden alt).")
+                item = {
+                    "status": "FAIL",
+                    "code": "BACKUP_STALE",
+                    "severity": "HIGH",
+                    "message": f"Backup-Log '{path}' ist veraltet ({int(file_age/3600)}h alt).",
+                    "compliance": ["ISO27001:A.8.13", "NIS2:Art21.2.c"]
+                }
             else:
-                findings.append(f"BACKUP_PASS: Backup-Log '{path}' ist aktuell.")
+                item = {
+                    "status": "PASS",
+                    "code": "BACKUP_OK",
+                    "severity": "INFO",
+                    "message": f"Backup-Log '{path}' ist aktuell.",
+                    "compliance": ["ISO27001:A.8.13", "NIS2:Art21.2.c"]
+                }
         else:
-            findings.append(f"BACKUP_INFO: Pfad '{path}' nicht gefunden.")
+            item = {
+                "status": "WARN",
+                "code": "BACKUP_NOT_FOUND",
+                "severity": "MEDIUM",
+                "message": f"Backup-Pfad '{path}' nicht gefunden.",
+                "compliance": ["ISO27001:A.8.13"]
+            }
+        findings.append(item)
 
     if logger:
-        for finding in findings:
-            logger.log(f"AUDIT_RESULT: backup_probe - {finding}")
+        for f in findings:
+            logger.log(f"AUDIT_RESULT: backup_probe [{f['status']}] - {f['message']}")
             
     return findings
