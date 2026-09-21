@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+# Alte Test-Logkette vor neuem Durchlauf aufräumen
+rm -f /tmp/aegis_chain.dat
+
 echo "=== 1. Starte Control Plane im Hintergrund ==="
 python3 -m uvicorn control-plane.app.main:app --port 8000 &
 SERVER_PID=$!
