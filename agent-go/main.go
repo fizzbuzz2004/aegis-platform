@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -46,9 +47,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctxRoot := context.Background()
+
 	if *enrollCode != "" {
 		fmt.Println("[REGISTER] Registriere Gerät bei der Control Plane...")
-		newToken, err := syncClient.RegisterDevice(*enrollCode)
+		newToken, err := syncClient.RegisterDevice(ctxRoot, *enrollCode)
 		if err != nil {
 			fmt.Printf("[FATAL] Geräte-Registrierung fehlgeschlagen: %v\n", err)
 			os.Exit(1)
@@ -65,8 +68,11 @@ func main() {
 	}
 
 	runCycle := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
 		fmt.Println("\n[RECONCILE] Fragt Soll-Zustand ab...")
-		modules, err := syncClient.FetchDesiredState()
+		modules, err := syncClient.FetchDesiredState(ctx)
 		if err != nil {
 			fmt.Printf("[SYNC WARN] State Fetch fehlgeschlagen: %v. Verarbeite Offline Queues...\n", err)
 			return
@@ -86,11 +92,11 @@ func main() {
 			case "registry_audit":
 				findings = probes.RunRegistryAudit(pCtx)
 			case "encryption_probe":
-				findings = probes.RunEncryptionProbe(pCtx)
+				findings = probes.RunEncryptionProbe(ctx, pCtx) // Korrigiert mit ctx
 			case "updates_probe":
 				findings = probes.RunUpdatesProbe(pCtx)
 			case "security_probe":
-				findings = probes.RunEndpointSecurityProbe(pCtx)
+				findings = probes.RunEndpointSecurityProbe(ctx, pCtx) // Korrigiert mit ctx
 			case "storage_probe":
 				findings = probes.RunStorageProbe(pCtx)
 			}
@@ -99,7 +105,7 @@ func main() {
 				for _, f := range findings {
 					_, _ = worm.Log(fmt.Sprintf("AUDIT [%s] %s: %s", modName, f.Status, f.Message))
 				}
-				if err := syncClient.PushResults(modName, findings); err != nil {
+				if err := syncClient.PushResults(ctx, modName, findings); err != nil {
 					fmt.Printf("[PUSH WARN] %s Ergebnisse gepuffert: %v\n", modName, err)
 				} else {
 					fmt.Printf("[PUSH OK] %s Ergebnisse erfolgreich übertragen.\n", modName)
