@@ -85,6 +85,14 @@ func main() {
 				findings = probes.RunBackupProbe(pCtx)
 			case "registry_audit":
 				findings = probes.RunRegistryAudit(pCtx)
+			case "encryption_probe":
+				findings = probes.RunEncryptionProbe(pCtx)
+			case "updates_probe":
+				findings = probes.RunUpdatesProbe(pCtx)
+			case "security_probe":
+				findings = probes.RunEndpointSecurityProbe(pCtx)
+			case "storage_probe":
+				findings = probes.RunStorageProbe(pCtx)
 			}
 
 			if len(findings) > 0 {
