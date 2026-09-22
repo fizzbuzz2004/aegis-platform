@@ -3,10 +3,12 @@
 package probes
 
 import (
+	"context"
+
 	"golang.org/x/sys/windows/registry"
 )
 
-func RunEndpointSecurityProbe(ctx ProbeContext) []Finding {
+func RunEndpointSecurityProbe(_ context.Context, ctx ProbeContext) []Finding {
 	var findings []Finding
 
 	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows Defender\Real-Time Protection`, registry.READ)
