@@ -1,149 +1,68 @@
-from fastapi import FastAPI, Header, HTTPException, Query
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-import sqlite3
-import json
-from datetime import datetime, timezone
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from contextlib import asynccontextmanager
 
-DB_PATH = "control_plane.sqlite"
+from app.core.config import settings
+from app.core.database import Base, engine, SessionLocal
+from app.core.security import get_password_hash
+from app.models.orm import User, Tenant, TenantModule
+from app.api.v1.router import api_router
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS tenants (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            api_token TEXT UNIQUE NOT NULL
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS tenant_modules (
-            tenant_id INTEGER,
-            module_name TEXT,
-            is_enabled BOOLEAN,
-            PRIMARY KEY (tenant_id, module_name)
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS module_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tenant_id INTEGER,
-            hostname TEXT,
-            module_name TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            findings TEXT,
-            FOREIGN KEY(tenant_id) REFERENCES tenants(id)
-        )
-    """)
-    # Initialer Seed für Demo
-    cur.execute("INSERT OR IGNORE INTO tenants (id, name, api_token) VALUES (1, 'Pilot-Systemhaus-Meier', 'aegis_test_token_001')")
-    cur.execute("INSERT OR IGNORE INTO tenant_modules (tenant_id, module_name, is_enabled) VALUES (1, 'cis_hardening', 1)")
-    cur.execute("INSERT OR IGNORE INTO tenant_modules (tenant_id, module_name, is_enabled) VALUES (1, 'backup_probe', 0)")
-    conn.commit()
-    conn.close()
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
-app = FastAPI(title="Aegis Control Plane API", version="1.2.0")
+def seed_initial_data():
+    db = SessionLocal()
+    try:
+        if not db.query(User).filter(User.username == "admin").first():
+            admin_user = User(username="admin", hashed_password=get_password_hash("admin123"), is_active=True)
+            db.add(admin_user)
+        
+        if not db.query(Tenant).filter(Tenant.id == 1).first():
+            pilot_tenant = Tenant(id=1, name="Pilot-Systemhaus-Meier", api_token="aegis_test_token_001")
+            db.add(pilot_tenant)
+            db.commit()
 
-@app.on_event("startup")
-def startup():
-    init_db()
+            mod1 = TenantModule(tenant_id=1, module_name="cis_hardening", is_enabled=True)
+            mod2 = TenantModule(tenant_id=1, module_name="backup_probe", is_enabled=False)
+            db.add_all([mod1, mod2])
 
-def get_tenant_by_token(authorization: str) -> dict:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Ungültiger Bearer Token")
-    token = authorization.split(" ")[1]
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT id, name FROM tenants WHERE api_token = ?", (token,))
-    tenant = cur.fetchone()
-    conn.close()
-    if not tenant:
-        raise HTTPException(status_code=403, detail="Unautorisierter Zugriff")
-    return dict(tenant)
+        db.commit()
+    finally:
+        db.close()
 
-@app.get("/api/v1/sync")
-def sync_config(hostname: Optional[str] = None, os: Optional[str] = None, authorization: str = Header(None)):
-    tenant = get_tenant_by_token(authorization)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT module_name, is_enabled FROM tenant_modules WHERE tenant_id = ?", (tenant["id"],))
-    modules = {row["module_name"]: bool(row["is_enabled"]) for row in cur.fetchall()}
-    conn.close()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    seed_initial_data()
+    yield
 
-    return {
-        "status": "ok",
-        "tenant_id": tenant["id"],
-        "tenant_name": tenant["name"],
-        "modules": modules
-    }
+app = FastAPI(
+    title=settings.PROJECT_NAME, 
+    version=settings.VERSION,
+    lifespan=lifespan
+)
 
-class FindingItem(BaseModel):
-    status: str
-    code: str
-    severity: str
-    message: str
-    compliance: Optional[List[str]] = []
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-class ResultPayload(BaseModel):
-    hostname: str
-    module_name: str
-    findings: List[FindingItem]
+# CORS & Security Hardening
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"],
+)
 
-@app.post("/api/v1/results")
-def submit_results(payload: ResultPayload, authorization: str = Header(None)):
-    tenant = get_tenant_by_token(authorization)
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    findings_json = json.dumps([f.dict() for f in payload.findings])
-    cur.execute("""
-        INSERT INTO module_results (tenant_id, hostname, module_name, findings)
-        VALUES (?, ?, ?, ?)
-    """, (tenant["id"], payload.hostname, payload.module_name, findings_json))
-    conn.commit()
-    conn.close()
-    return {"status": "success", "message": "Ergebnisse verarbeitet"}
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
-class ToggleRequest(BaseModel):
-    tenant_id: int
-    module_name: str
-    enable: bool
-
-@app.post("/api/v1/admin/toggle")
-def toggle_module(req: ToggleRequest):
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO tenant_modules (tenant_id, module_name, is_enabled)
-        VALUES (?, ?, ?)
-        ON CONFLICT(tenant_id, module_name) DO UPDATE SET is_enabled = ?
-    """, (req.tenant_id, req.module_name, int(req.enable), int(req.enable)))
-    conn.commit()
-    conn.close()
-    return {"status": "success", "tenant_id": req.tenant_id, "module": req.module_name, "enabled": req.enable}
-
-@app.get("/api/v1/admin/results/{tenant_id}")
-def get_tenant_results(tenant_id: int):
-    """Liefert alle Audit-Ergebnisse eines Mandanten für das Systemhaus-Dashboard."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, hostname, module_name, timestamp, findings 
-        FROM module_results 
-        WHERE tenant_id = ? 
-        ORDER BY timestamp DESC
-    """, (tenant_id,))
-    
-    results = []
-    for row in cur.fetchall():
-        item = dict(row)
-        try:
-            item["findings"] = json.loads(item["findings"])
-        except Exception:
-            item["findings"] = []
-        results.append(item)
-    conn.close()
-    return {"status": "success", "tenant_id": tenant_id, "results": results}
+app.include_router(api_router, prefix="/api/v1")
