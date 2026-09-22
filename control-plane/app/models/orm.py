@@ -6,11 +6,11 @@ from app.core.database import Base
 class User(Base):
     __tablename__ = "users"
 
-    # BUGFIX: Syntax-Fehler 'primary_primary=True' wurde korrigiert
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class Tenant(Base):
@@ -24,6 +24,19 @@ class Tenant(Base):
     hosts = relationship("HostDevice", back_populates="tenant", cascade="all, delete-orphan")
     modules = relationship("TenantModule", back_populates="tenant", cascade="all, delete-orphan")
     results = relationship("ModuleResult", back_populates="tenant", cascade="all, delete-orphan")
+    webhooks = relationship("WebhookConfig", back_populates="tenant", cascade="all, delete-orphan")
+
+class WebhookConfig(Base):
+    __tablename__ = "webhook_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    url = Column(String(255), nullable=False)
+    secret_token = Column(String(255), nullable=False)
+    events = Column(String(255), default="ALL")
+    is_active = Column(Boolean, default=True)
+    
+    tenant = relationship("Tenant", back_populates="webhooks")
 
 class HostDevice(Base):
     __tablename__ = "host_devices"

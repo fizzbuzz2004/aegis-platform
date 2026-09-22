@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import Optional
 import json
+import secrets
 
 from app.core.database import get_db
-from app.models.orm import Tenant, TenantModule, ModuleResult, HostDevice
+from app.models.orm import Tenant, TenantModule, ModuleResult, HostDevice, WebhookConfig
 from app.models.module_state import ResultPayload, RegisterHostRequest, RegisterHostResponse
-import secrets
+from app.services.webhook import dispatch_webhook
 
 router = APIRouter()
 
@@ -55,6 +56,7 @@ def sync_config(
 @router.post("/sync/results")
 def submit_results(
     payload: ResultPayload, 
+    background_tasks: BackgroundTasks,
     host: HostDevice = Depends(verify_host_token),
     db: Session = Depends(get_db)
 ):
@@ -67,4 +69,22 @@ def submit_results(
     )
     db.add(result_entry)
     db.commit()
+
+    needs_alert = any(
+        f.status == 'FAIL' or f.severity in ['HIGH', 'CRITICAL'] 
+        for f in payload.findings
+    )
+
+    if needs_alert:
+        webhooks = db.query(WebhookConfig).filter(
+            WebhookConfig.tenant_id == host.tenant_id, 
+            WebhookConfig.is_active == True
+        ).all()
+        
+        if webhooks:
+            alert_payload = payload.model_dump()
+            alert_payload["tenant_id"] = host.tenant_id
+            for wh in webhooks:
+                background_tasks.add_task(dispatch_webhook, wh.url, wh.secret_token, alert_payload)
+
     return {"status": "success", "message": "Audit-Ergebnisse gespeichert."}

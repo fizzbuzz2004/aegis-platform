@@ -1,3 +1,5 @@
+import logging
+import secrets
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -11,13 +13,31 @@ from app.core.security import get_password_hash
 from app.models.orm import User, Tenant, TenantModule
 from app.api.v1.router import api_router
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 def seed_initial_data():
     db = SessionLocal()
     try:
         if not db.query(User).filter(User.username == "admin").first():
-            admin_user = User(username="admin", hashed_password=get_password_hash("admin123"), is_active=True)
+            initial_pw = settings.ADMIN_INITIAL_PASSWORD
+            if not initial_pw:
+                initial_pw = secrets.token_urlsafe(16)
+                logger.warning(f"===========================================================")
+                logger.warning(f"NO ADMIN_INITIAL_PASSWORD SET. GENERATED SECURE PASSWORD:")
+                logger.warning(f"Username: admin")
+                logger.warning(f"Password: {initial_pw}")
+                logger.warning(f"PLEASE SAVE THIS. YOU WILL BE FORCED TO CHANGE IT ON LOGIN.")
+                logger.warning(f"===========================================================")
+
+            admin_user = User(
+                username="admin", 
+                hashed_password=get_password_hash(initial_pw), 
+                is_active=True,
+                must_change_password=True
+            )
             db.add(admin_user)
         
         if not db.query(Tenant).filter(Tenant.id == 1).first():
