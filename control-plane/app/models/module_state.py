@@ -21,3 +21,12 @@ class ToggleRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+class RegisterHostRequest(BaseModel):
+    enrollment_code: str
+    hostname: str
+    os_info: str
+
+class RegisterHostResponse(BaseModel):
+    status: str
+    host_token: str

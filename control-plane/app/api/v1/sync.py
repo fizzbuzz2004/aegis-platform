@@ -4,49 +4,67 @@ from typing import Optional
 import json
 
 from app.core.database import get_db
-from app.models.orm import Tenant, TenantModule, ModuleResult
-from app.models.module_state import ResultPayload
+from app.models.orm import Tenant, TenantModule, ModuleResult, HostDevice
+from app.models.module_state import ResultPayload, RegisterHostRequest, RegisterHostResponse
+import secrets
 
 router = APIRouter()
 
-def verify_tenant_token(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)) -> Tenant:
+def verify_host_token(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)) -> HostDevice:
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bearer Token fehlt oder ungültig")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Host-Bearer Token fehlt")
     token = authorization.split(" ")[1]
-    tenant = db.query(Tenant).filter(Tenant.api_token == token).first()
-    if not tenant:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unautorisierter Agent-Zugriff")
-    return tenant
+    host = db.query(HostDevice).filter(HostDevice.host_token == token).first()
+    if not host:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Ungültiger Host-Token")
+    return host
 
-@router.get("/sync")
+@router.post("/sync/register", response_model=RegisterHostResponse)
+def register_host(payload: RegisterHostRequest, db: Session = Depends(get_db)):
+    tenant = db.query(Tenant).filter(Tenant.enrollment_code == payload.enrollment_code).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Ungültiger Enrollment-Code")
+
+    host_token = f"aegis_host_{secrets.token_hex(32)}"
+    host = HostDevice(
+        tenant_id=tenant.id,
+        hostname=payload.hostname,
+        os_info=payload.os_info,
+        host_token=host_token
+    )
+    db.add(host)
+    db.commit()
+    return {"status": "registered", "host_token": host_token}
+
+@router.get("/sync/config")
 def sync_config(
     hostname: Optional[str] = None, 
     os: Optional[str] = None, 
-    tenant: Tenant = Depends(verify_tenant_token),
+    host: HostDevice = Depends(verify_host_token),
     db: Session = Depends(get_db)
 ):
-    modules_query = db.query(TenantModule).filter(TenantModule.tenant_id == tenant.id).all()
+    modules_query = db.query(TenantModule).filter(TenantModule.tenant_id == host.tenant_id).all()
     modules_map = {m.module_name: m.is_enabled for m in modules_query}
     return {
         "status": "ok",
-        "tenant_id": tenant.id,
-        "tenant_name": tenant.name,
+        "tenant_id": host.tenant_id,
+        "hostname": host.hostname,
         "modules": modules_map
     }
 
-@router.post("/results")
+@router.post("/sync/results")
 def submit_results(
     payload: ResultPayload, 
-    tenant: Tenant = Depends(verify_tenant_token),
+    host: HostDevice = Depends(verify_host_token),
     db: Session = Depends(get_db)
 ):
     findings_json = json.dumps([f.model_dump() for f in payload.findings])
     result_entry = ModuleResult(
-        tenant_id=tenant.id,
-        hostname=payload.hostname,
+        tenant_id=host.tenant_id,
+        hostname=host.hostname,
         module_name=payload.module_name,
         findings=findings_json
     )
     db.add(result_entry)
     db.commit()
-    return {"status": "success", "message": "Ergebnisse sicher gespeichert"}
+    return {"status": "success", "message": "Audit-Ergebnisse gespeichert."}

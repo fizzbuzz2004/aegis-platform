@@ -21,13 +21,14 @@ def seed_initial_data():
             db.add(admin_user)
         
         if not db.query(Tenant).filter(Tenant.id == 1).first():
-            pilot_tenant = Tenant(id=1, name="Pilot-Systemhaus-Meier", api_token="aegis_test_token_001")
+            pilot_tenant = Tenant(id=1, name="Pilot-Systemhaus-Meier", enrollment_code="enroll_pilot_2026")
             db.add(pilot_tenant)
             db.commit()
 
             mod1 = TenantModule(tenant_id=1, module_name="cis_hardening", is_enabled=True)
-            mod2 = TenantModule(tenant_id=1, module_name="backup_probe", is_enabled=False)
-            db.add_all([mod1, mod2])
+            mod2 = TenantModule(tenant_id=1, module_name="backup_probe", is_enabled=True)
+            mod3 = TenantModule(tenant_id=1, module_name="registry_audit", is_enabled=True)
+            db.add_all([mod1, mod2, mod3])
 
         db.commit()
     finally:
@@ -48,7 +49,6 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS & Security Hardening
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
