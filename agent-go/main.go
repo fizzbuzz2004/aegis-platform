@@ -73,7 +73,34 @@ func main() {
 			return
 		}
 
-		// Dynamische Ausführung aller registrierten Probes ohne Code-Anpassung in main.go
+		// --- ZENTRALE WORM-INTEGRITÄTSPRÜFUNG PRO ZYKLUS ---
+		ok, wormMsg, wormErr := worm.VerifyIntegrity()
+		wormStatus := "PASS"
+		wormSeverity := "INFO"
+		if !ok || wormErr != nil {
+			wormStatus = "FAIL"
+			wormSeverity = "CRITICAL"
+			if wormErr != nil {
+				wormMsg = fmt.Sprintf("%s (Fehler: %v)", wormMsg, wormErr)
+			}
+		}
+
+		wormFindings := []probes.Finding{{
+			Status:     wormStatus,
+			Code:       "WORM_INTEGRITY_CHECK",
+			Severity:   wormSeverity,
+			Message:    wormMsg,
+			Compliance: []string{"ISO27001:A.8.15", "NIS2:Art21.2.j"},
+		}}
+
+		_, _ = worm.Log(fmt.Sprintf("AUDIT [worm_audit] %s: %s", wormStatus, wormMsg))
+		if err := syncClient.PushResults(ctx, "worm_audit", wormFindings); err != nil {
+			fmt.Printf("[PUSH WARN] worm_audit lokal gepuffert: %v\n", err)
+		} else {
+			fmt.Println("[PUSH OK] worm_audit Ergebnisse übertragen.")
+		}
+
+		// --- DYNAMISCHE AUSFÜHRUNG ALLER REGISTRIERTEN PROBES ---
 		for modName, enabled := range modules {
 			if !enabled {
 				continue
