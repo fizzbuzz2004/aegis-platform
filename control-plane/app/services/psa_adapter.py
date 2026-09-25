@@ -4,11 +4,11 @@ import hashlib
 import urllib.request
 import urllib.error
 import logging
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.models.orm import ModuleResult
-from app.services.ssrf_protection import is_safe_url
+from app.services.ssrf_protection import get_safe_request_url_and_host
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +18,10 @@ class PSADispatcher:
         return hmac.new(secret.encode('utf-8'), payload_bytes, hashlib.sha256).hexdigest()
 
     @classmethod
-    def dispatch_event(cls, url: str, secret_token: str, payload: dict[str, Any], previous_state_failed: bool, db: Session = None) -> None:
-        if not is_safe_url(url):
+    def dispatch_event(cls, url: str, secret_token: str, payload: dict[str, Any], previous_state_failed: bool, db: Optional[Session] = None) -> None:
+        # SSRF-Schutz & DNS-Rebinding Prävention
+        safe_url, original_host = get_safe_request_url_and_host(url)
+        if not safe_url or not original_host:
             logger.error(f"PSA Dispatch blockiert: URL {url} ist unsicher (SSRF-Prävention).")
             return
 
@@ -50,7 +52,11 @@ class PSADispatcher:
         payload_bytes = json.dumps(psa_payload).encode('utf-8')
         signature = cls._generate_signature(secret_token, payload_bytes)
 
-        req = urllib.request.Request(url, data=payload_bytes, method='POST')
+        # Der Request wird direkt an die verifizierte IP (safe_url) gesendet
+        req = urllib.request.Request(safe_url, data=payload_bytes, method='POST')
+        
+        # Der ursprüngliche Hostname wird im Host-Header mitgegeben
+        req.add_header('Host', original_host)
         req.add_header('Content-Type', 'application/json')
         req.add_header('X-Aegis-Signature', signature)
         req.add_header('X-Aegis-Idempotency-Key', f"{payload.get('hostname')}-{payload.get('module_name')}-{action}")

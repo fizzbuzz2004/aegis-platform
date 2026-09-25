@@ -22,7 +22,13 @@ func main() {
 	enrollCode := flag.String("register", "", "Einmaliger Registrierungscode")
 	flag.Parse()
 
-	worm, err := core.NewWormLogger("")
+	// Initialisierung: Host-Token als HMAC-Secret für den WORM Logger sichern
+	hostTokenValue := *hostToken
+	if hostTokenValue == "" {
+		hostTokenValue = "fallback_offline_secret_key"
+	}
+
+	worm, err := core.NewWormLogger("", hostTokenValue)
 	if err != nil {
 		fmt.Printf("[FATAL] WORM Logger Init fehlgeschlagen: %v\n", err)
 		os.Exit(1)

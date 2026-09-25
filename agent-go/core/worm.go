@@ -1,6 +1,7 @@
 package core
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -12,11 +13,12 @@ import (
 )
 
 type WormLogger struct {
-	filePath string
-	mu       sync.Mutex
+	filePath  string
+	secretKey []byte
+	mu        sync.Mutex
 }
 
-func NewWormLogger(customPath string) (*WormLogger, error) {
+func NewWormLogger(customPath string, secretToken string) (*WormLogger, error) {
 	path := customPath
 	if path == "" {
 		if os.Getenv("OS") == "Windows_NT" {
@@ -30,7 +32,10 @@ func NewWormLogger(customPath string) (*WormLogger, error) {
 		return nil, err
 	}
 
-	return &WormLogger{filePath: path}, nil
+	return &WormLogger{
+		filePath:  path,
+		secretKey: []byte(secretToken),
+	}, nil
 }
 
 func (w *WormLogger) getLastHash() string {
@@ -53,6 +58,12 @@ func (w *WormLogger) getLastHash() string {
 	return parts[0]
 }
 
+func (w *WormLogger) generateHMAC(payload string) string {
+	mac := hmac.New(sha256.New, w.secretKey)
+	mac.Write([]byte(payload))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 func (w *WormLogger) Log(event string) (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -61,8 +72,7 @@ func (w *WormLogger) Log(event string) (string, error) {
 	utcTs := time.Now().UTC().Format(time.RFC3339)
 
 	payload := fmt.Sprintf("%s:%s:%s", prevHash, utcTs, event)
-	hashBytes := sha256.Sum256([]byte(payload))
-	currentHash := hex.EncodeToString(hashBytes[:])
+	currentHash := w.generateHMAC(payload)
 
 	entry := fmt.Sprintf("%s|%s|%s|%s\n", currentHash, prevHash, utcTs, event)
 
@@ -72,7 +82,6 @@ func (w *WormLogger) Log(event string) (string, error) {
 	}
 	defer file.Close()
 
-	// Plattformunabhängiges Dateilocking
 	_ = lockFile(file)
 	defer unlockFile(file)
 
@@ -118,15 +127,14 @@ func (w *WormLogger) VerifyIntegrity() (bool, string, error) {
 		}
 
 		payload := fmt.Sprintf("%s:%s:%s", prevHash, utcTs, event)
-		calcBytes := sha256.Sum256([]byte(payload))
-		calcHash := hex.EncodeToString(calcBytes[:])
+		calcHash := w.generateHMAC(payload)
 
 		if calcHash != storedHash {
-			return false, fmt.Sprintf("Zeile %d: MANIPULATION ERKANNT! Stored Hash und Calculated Hash weichen ab.", idx+1), nil
+			return false, fmt.Sprintf("Zeile %d: MANIPULATION ERKANNT! Ungültige kryptografische Signatur.", idx+1), nil
 		}
 
 		expectedPrev = storedHash
 	}
 
-	return true, fmt.Sprintf("Integrität bestätigt. %d Blöcke erfolgreich geprüft.", len(lines)), nil
+	return true, fmt.Sprintf("Integrität bestätigt. %d Blöcke erfolgreich kryptografisch geprüft.", len(lines)), nil
 }

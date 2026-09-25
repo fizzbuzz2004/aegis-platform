@@ -3,12 +3,14 @@ import hmac
 import hashlib
 import urllib.request
 import logging
-from app.services.ssrf_protection import is_safe_url
+from app.services.ssrf_protection import get_safe_request_url_and_host
 
 logger = logging.getLogger(__name__)
 
 def dispatch_webhook(url: str, secret_token: str, payload: dict):
-    if not is_safe_url(url):
+    safe_url, original_host = get_safe_request_url_and_host(url)
+    
+    if not safe_url or not original_host:
         logger.error(f"Webhook blockiert: URL {url} ist unsicher (SSRF-Prävention).")
         return
 
@@ -20,7 +22,11 @@ def dispatch_webhook(url: str, secret_token: str, payload: dict):
             hashlib.sha256
         ).hexdigest()
 
-        req = urllib.request.Request(url, data=payload_bytes, method='POST')
+        # Request wird gegen die feste IP ausgeführt, um DNS-Rebinding zu blockieren
+        req = urllib.request.Request(safe_url, data=payload_bytes, method='POST')
+        
+        # Der originale Host-Header wird gesetzt, damit das Zielsystem richtig routet
+        req.add_header('Host', original_host)
         req.add_header('Content-Type', 'application/json')
         req.add_header('X-Aegis-Signature', signature)
         
