@@ -6,16 +6,22 @@ os.environ["SECRET_KEY"] = "test_secret_key_fuer_unit_tests_123456789"
 os.environ["ADMIN_INITIAL_PASSWORD"] = "TestPassword123!"
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.database import Base, engine, SessionLocal, get_db
 from app.core.security import get_password_hash
+
+# ORM-Modelle registrieren
+import app.models.orm
 from app.models.orm import User, UserRole
+
+# Schutz vor Package-Kollisionen: Verifiziere, dass app eine FastAPI-Instanz ist
+assert isinstance(app, FastAPI), "Importiertes 'app' ist keine FastAPI-Instanz!"
 
 @pytest.fixture(scope="function")
 def db():
-    # Erstellt die Tabellen auf dem exakt selben Engine-Objekt, das auch die App nutzt
     Base.metadata.create_all(bind=engine)
     db_session = SessionLocal()
     

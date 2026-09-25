@@ -1,18 +1,26 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.pool import StaticPool
 from app.core.config import settings
 
-# Prüfen, ob SQLite verwendet wird (z.B. in Tests)
 is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 
 if is_sqlite:
-    # SQLite (insbesondere In-Memory) unterstützt kein max_overflow / pool_size
-    engine = create_engine(
-        settings.DATABASE_URL,
-        connect_args={"check_same_thread": False}
-    )
+    # Für In-Memory-Tests nutzen wir den StaticPool, damit alle Verbindungen 
+    # (z.B. App, Test-Fixture und Hintergrunddienste wie PSADispatcher) 
+    # exakt dieselbe Datenbank im Speicher teilen.
+    if ":memory:" in settings.DATABASE_URL or settings.DATABASE_URL == "sqlite://":
+        engine = create_engine(
+            settings.DATABASE_URL,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        engine = create_engine(
+            settings.DATABASE_URL,
+            connect_args={"check_same_thread": False}
+        )
 else:
-    # Produktion (z.B. PostgreSQL) mit Connection Pooling
     engine = create_engine(
         settings.DATABASE_URL,
         pool_size=5,
