@@ -6,6 +6,10 @@ param (
 )
 
 $ErrorActionPreference = "Stop"
+
+# NIS2: Erzwinge starkes TLS 1.2+ zur Abwehr von MITM & Downgrade-Attacken
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+
 $InstallDir = "C:\ProgramData\Aegis"
 $BinaryUrl = "$ServerUrl/downloads/aegis-agent-win-x64.exe"
 $ExePath = Join-Path $InstallDir "aegis-agent.exe"
@@ -22,7 +26,7 @@ $Payload = @{
     enrollment_code = $EnrollmentCode
     hostname = $env:COMPUTERNAME
     os_info = $OSInfo
-} | ConvertTo-Json
+} | ConvertTo-Json -Depth 2
 
 $Response = Invoke-RestMethod -Uri "$ServerUrl/api/v1/agents/register" -Method Post -Body $Payload -ContentType "application/json"
 
@@ -32,7 +36,6 @@ if ($Response.status -eq "success" -and $Response.host_token) {
     [Environment]::SetEnvironmentVariable("AEGIS_SERVER_URL", $ServerUrl, [EnvironmentVariableTarget]::Machine)
 
     Write-Host "[*] Registriere und starte Windows Dienst..."
-    # SC.exe zur Dienstregistrierung des Go-Binaries (vorausgesetzt das Go-Binary unterstützt Windows Services)
     sc.exe create "AegisAgent" binPath= "$ExePath" start= auto
     sc.exe start "AegisAgent"
     Write-Host "[+] Deployment abgeschlossen."

@@ -8,6 +8,7 @@ from typing import Any
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.models.orm import ModuleResult
+from app.services.ssrf_protection import is_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,10 @@ class PSADispatcher:
 
     @classmethod
     def dispatch_event(cls, url: str, secret_token: str, payload: dict[str, Any], previous_state_failed: bool, db: Session = None) -> None:
+        if not is_safe_url(url):
+            logger.error(f"PSA Dispatch blockiert: URL {url} ist unsicher (SSRF-Prävention).")
+            return
+
         current_status_failed = any(
             f.get('status') == 'FAIL' or f.get('severity') in ['HIGH', 'CRITICAL'] 
             for f in payload.get('findings', [])
@@ -54,13 +59,12 @@ class PSADispatcher:
         for attempt in range(3):
             try:
                 with urllib.request.urlopen(req, timeout=10) as response:
-                    logger.info(f"PSA Action {action} dispatched. HTTP {response.status}")
+                    logger.info(f"PSA Action {action} gesendet. HTTP {response.status}")
                     success = True
                     break
             except urllib.error.URLError as e:
                 logger.warning(f"PSA Dispatch Versuch {attempt + 1} fehlgeschlagen: {str(e)}")
 
-        # Dead-Letter Logging bei dauerhaftem Fehler
         if not success and db:
             dlq_entry = ModuleResult(
                 tenant_id=payload.get("tenant_id"),

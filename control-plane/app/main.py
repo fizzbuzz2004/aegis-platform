@@ -1,5 +1,6 @@
 import logging
 import secrets
+import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -23,14 +24,11 @@ def seed_initial_data():
     try:
         if not db.query(User).filter(User.username == "admin").first():
             initial_pw = settings.ADMIN_INITIAL_PASSWORD
-            if not initial_pw:
-                initial_pw = secrets.token_urlsafe(16)
-                logger.warning(f"===========================================================")
-                logger.warning(f"NO ADMIN_INITIAL_PASSWORD SET. GENERATED SECURE PASSWORD:")
-                logger.warning(f"Username: admin")
-                logger.warning(f"Password: {initial_pw}")
-                logger.warning(f"PLEASE SAVE THIS. YOU WILL BE FORCED TO CHANGE IT ON LOGIN.")
-                logger.warning(f"===========================================================")
+            
+            # ISO27001: Passwörter niemals loggen, Passwortrichtlinie hart durchsetzen!
+            if not initial_pw or len(initial_pw) < 12:
+                logger.error("KRITISCH: 'ADMIN_INITIAL_PASSWORD' nicht gesetzt oder zu kurz (< 12).")
+                sys.exit(1)
 
             admin_user = User(
                 username="admin", 
@@ -71,7 +69,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Hinweis: In Produktion idealerweise auf spezifische Domains eingrenzen
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
@@ -83,6 +81,13 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    # NIS2/ISO27001: Verhinderung von XSS und Injection in Dashboards
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:;"
+    )
     return response
 
 app.include_router(api_router, prefix="/api/v1")
