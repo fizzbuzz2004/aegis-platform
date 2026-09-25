@@ -1,21 +1,26 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-
-# Korrigierter Import (ohne das ungültige 'control-plane')
 from app.core.config import settings
-# Alternativ als relativer Import, da config.py im selben Ordner (core) liegt:
-# from .config import settings
 
-# Connection Pooling config for Enterprise high-concurrency loads
-engine = create_engine(
-    settings.DATABASE_URL,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    pool_recycle=1800
-)
+# Prüfen, ob SQLite verwendet wird (z.B. in Tests)
+is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+
+if is_sqlite:
+    # SQLite (insbesondere In-Memory) unterstützt kein max_overflow / pool_size
+    engine = create_engine(
+        settings.DATABASE_URL,
+        connect_args={"check_same_thread": False}
+    )
+else:
+    # Produktion (z.B. PostgreSQL) mit Connection Pooling
+    engine = create_engine(
+        settings.DATABASE_URL,
+        pool_size=5,
+        max_overflow=10
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()
 
 def get_db():

@@ -3,21 +3,19 @@ import secrets
 import sys
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
 from app.core.security import get_password_hash
+from app.core.limiter import limiter  # Zentraler Import zur Vermeidung zirkulärer Imports
 from app.models.orm import User, Tenant, TenantModule
 from app.api.v1.router import api_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 def seed_initial_data():
     db = SessionLocal()

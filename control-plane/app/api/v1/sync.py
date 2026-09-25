@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.models.orm import Tenant, TenantModule, ModuleResult, HostDevice, WebhookConfig
 from app.models.module_state import ResultPayload, RegisterHostRequest, RegisterHostResponse
 from app.services.psa_adapter import PSADispatcher
-from app.main import limiter 
+from app.core.limiter import limiter
 
 router = APIRouter()
 
