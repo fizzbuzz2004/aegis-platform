@@ -1,0 +1,66 @@
+# ==========================================
+# Secrets & Umweltvariablen
+# ==========================================
+# Da Secrets hier lokal über .env und den Ordner secrets/ geladen werden:
+.env
+.env.local
+.env.*.local
+secrets/
+!secrets/.gitkeep
+
+# ==========================================
+# Build Artifacts & Binaries
+# ==========================================
+# Aus scripts/build.sh und Makefile
+dist/
+*.exe
+*.exe.manifest
+*.dll
+*.so
+*.dylib
+
+# ==========================================
+# Go (agent-go)
+# ==========================================
+agent-go/vendor/
+*.test
+coverage.out
+
+# ==========================================
+# Python / Control Plane (control-plane)
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================================
+# Laufzeitdaten & Lokale SQLite DBs
+# ==========================================
+# Aus sync.go (offline queue.db) und worm.go (aegis_chain.dat)
+*.db
+*.db.*.gz
+aegis_chain.dat
+
+# ==========================================
+# Docker & Dev Overrides
+# ==========================================
+docker-compose.override.yml
+
+# ==========================================
+# IDEs & Betriebssystem
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
