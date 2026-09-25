@@ -1,0 +1,20 @@
+services:
+  control-plane:
+    image: aegis-control-plane:latest
+    ports:
+      - "8000:8000"
+    secrets:
+      - DATABASE_URL
+      - SECRET_KEY
+      - ADMIN_INITIAL_PASSWORD
+    environment:
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=120
+
+secrets:
+  DATABASE_URL:
+    file: ./secrets/db_url.txt
+  SECRET_KEY:
+    file: ./secrets/secret_key.txt
+  ADMIN_INITIAL_PASSWORD:
+    file: ./secrets/admin_pw.txt
