@@ -1,56 +1,47 @@
 package probes
 
 import (
+	"context"
 	"os"
 	"strings"
 )
 
+func init() {
+	Register("cis_hardening", func(ctx context.Context, pCtx ProbeContext) []Finding {
+		return RunCISHardening(pCtx)
+	})
+}
+
 func RunCISHardening(ctx ProbeContext) []Finding {
 	var findings []Finding
-
-	switch ctx.OSName {
-	case "linux":
-		sshdConfigPath := "/etc/ssh/sshd_config"
-		data, err := os.ReadFile(sshdConfigPath)
+	if ctx.OSName == "linux" {
+		data, err := os.ReadFile("/etc/ssh/sshd_config")
 		if err != nil {
-			findings = append(findings, Finding{
+			return []Finding{{
 				Status:     "WARN",
 				Code:       "SSH_AUDIT_ERROR",
 				Severity:   "MEDIUM",
-				Message:    "sshd_config konnte nicht gelesen werden: " + err.Error(),
+				Message:    "sshd_config konnte nicht gelesen werden",
 				Compliance: []string{"ISO27001:A.8.9"},
-			})
-			return findings
+			}}
 		}
-
-		content := string(data)
-		if strings.Contains(content, "PermitRootLogin yes") {
+		if strings.Contains(string(data), "PermitRootLogin yes") {
 			findings = append(findings, Finding{
 				Status:     "FAIL",
 				Code:       "SSH_ROOT_ALLOWED",
 				Severity:   "HIGH",
-				Message:    "SSH PermitRootLogin ist explizit aktiviert.",
-				Compliance: []string{"ISO27001:A.8.9", "NIS2:Art21.2.i", "CIS_L1"},
+				Message:    "SSH PermitRootLogin ist aktiviert",
+				Compliance: []string{"ISO27001:A.8.9", "NIS2:Art21.2.i"},
 			})
 		} else {
 			findings = append(findings, Finding{
 				Status:     "PASS",
 				Code:       "SSH_ROOT_DISABLED",
 				Severity:   "INFO",
-				Message:    "SSH Root-Login ist ordnungsgemäß eingeschränkt.",
-				Compliance: []string{"ISO27001:A.8.9", "NIS2:Art21.2.i", "CIS_L1"},
+				Message:    "SSH Root-Login ist deaktiviert",
+				Compliance: []string{"ISO27001:A.8.9"},
 			})
 		}
-
-	case "windows":
-		findings = append(findings, Finding{
-			Status:     "PASS",
-			Code:       "WIN_BASELINE_OK",
-			Severity:   "INFO",
-			Message:    "Windows Security Baseline erfolgreich evaluiert.",
-			Compliance: []string{"ISO27001:A.8.9", "CIS_L1"},
-		})
 	}
-
 	return findings
 }

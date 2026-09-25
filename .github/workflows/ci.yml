@@ -1,0 +1,35 @@
+name: Aegis CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-agent:
+    name: Cross-Compile Go Agent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run Go Tests
+        run: |
+          cd agent-go
+          go test -v ./...
+
+      - name: Build Agent Binaries
+        run: |
+          chmod +x scripts/build.sh
+          ./scripts/build.sh
+
+      - name: Upload Agent Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aegis-agent-binaries
+          path: dist/

@@ -54,6 +54,7 @@ func NewSyncClient(serverURL, hostToken, hostname, osInfo string) (*SyncClient, 
 				IdleConnTimeout:   30 * time.Second,
 				DisableKeepAlives: false,
 			},
+			Timeout: 10 * time.Second,
 		},
 	}
 
@@ -92,12 +93,12 @@ func (s *SyncClient) PushResults(ctx context.Context, moduleName string, finding
 	}
 
 	maxRetries := 3
-	baseBackoff := 2 * time.Second
+	baseBackoff := 1 * time.Second
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, "POST", s.ServerURL+"/api/v1/sync/results", bytes.NewBuffer(data))
 		if err != nil {
-			return fmt.Errorf("Request-Erstellung fehlgeschlagen: %w", err)
+			return err
 		}
 
 		req.Header.Set("Authorization", "Bearer "+s.HostToken)
@@ -115,21 +116,70 @@ func (s *SyncClient) PushResults(ctx context.Context, moduleName string, finding
 		select {
 		case <-ctx.Done():
 			s.enqueueOffline(moduleName, data)
-			return fmt.Errorf("Push wegen Context-Timeout/Abbruch beendet: %w", ctx.Err())
+			return ctx.Err()
 		case <-time.After(baseBackoff * time.Duration(1<<attempt)):
-			// Exponential Backoff
 		}
 	}
 
 	s.enqueueOffline(moduleName, data)
-	return fmt.Errorf("Übertragung nach %d Versuchen fehlgeschlagen, lokal gepuffert", maxRetries)
+	return fmt.Errorf("übertragung fehlgeschlagen, lokal gepuffert")
+}
+
+func (s *SyncClient) FlushOfflineQueue(ctx context.Context) (int, int) {
+	db, err := sql.Open("sqlite", s.QueueDB)
+	if err != nil {
+		return 0, 0
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, "SELECT id, module_name, findings_json FROM offline_findings ORDER BY id ASC LIMIT 50")
+	if err != nil {
+		return 0, 0
+	}
+	defer rows.Close()
+
+	succeeded := 0
+	failed := 0
+
+	for rows.Next() {
+		var id int
+		var modName, jsonStr string
+		if err := rows.Scan(&id, &modName, &jsonStr); err != nil {
+			failed++
+			continue
+		}
+
+		req, err := http.NewRequestWithContext(ctx, "POST", s.ServerURL+"/api/v1/sync/results", bytes.NewBufferString(jsonStr))
+		if err != nil {
+			failed++
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+s.HostToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := s.HTTPClient.Do(req)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			resp.Body.Close()
+			_, _ = db.ExecContext(ctx, "DELETE FROM offline_findings WHERE id = ?", id)
+			succeeded++
+		} else {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			failed++
+		}
+	}
+
+	// Behebt die Linter-Warnung (sqlrowserr)
+	if err := rows.Err(); err != nil {
+		fmt.Printf("[QUEUE WARN] Fehler während der DB-Iteration: %v\n", err)
+	}
+
+	return succeeded, failed
 }
 
 func (s *SyncClient) enqueueOffline(moduleName string, payloadJson []byte) {
-	if s.checkQueueSizeAndRotate() {
-		return // Queue wurde gerade rotiert, warten auf nächsten Cycle
-	}
-
+	s.checkQueueSizeAndRotate()
 	db, err := sql.Open("sqlite", s.QueueDB)
 	if err != nil {
 		return
@@ -140,7 +190,7 @@ func (s *SyncClient) enqueueOffline(moduleName string, payloadJson []byte) {
 
 func (s *SyncClient) checkQueueSizeAndRotate() bool {
 	info, err := os.Stat(s.QueueDB)
-	if err != nil || info.Size() < 50*1024*1024 { // 50 MB Hard-Limit
+	if err != nil || info.Size() < 50*1024*1024 {
 		return false
 	}
 
@@ -160,14 +210,11 @@ func (s *SyncClient) checkQueueSizeAndRotate() bool {
 }
 
 func (s *SyncClient) RegisterDevice(ctx context.Context, enrollCode string) (string, error) {
-	payload, err := json.Marshal(map[string]string{
+	payload, _ := json.Marshal(map[string]string{
 		"enrollment_code": enrollCode,
 		"hostname":        s.Hostname,
 		"os_info":         s.OSInfo,
 	})
-	if err != nil {
-		return "", err
-	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", s.ServerURL+"/api/v1/agents/register", bytes.NewBuffer(payload))
 	if err != nil {
@@ -182,7 +229,7 @@ func (s *SyncClient) RegisterDevice(ctx context.Context, enrollCode string) (str
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Registrierung fehlgeschlagen mit HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	var res struct {
@@ -209,12 +256,10 @@ func (s *SyncClient) FetchDesiredState(ctx context.Context) (map[string]bool, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("State Fetch fehlgeschlagen mit HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	state := make(map[string]bool)
-	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
-		return nil, err
-	}
+	_ = json.NewDecoder(resp.Body).Decode(&state)
 	return state, nil
 }

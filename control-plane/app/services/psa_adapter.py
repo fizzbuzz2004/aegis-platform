@@ -6,21 +6,18 @@ import urllib.error
 import logging
 from typing import Any
 from datetime import datetime, timezone
+from sqlalchemy.orm import Session
+from app.models.orm import ModuleResult
 
 logger = logging.getLogger(__name__)
 
 class PSADispatcher:
-    """Bidirektionaler Adapter für PSA-Systeme (HaloPSA / Autotask) mit Idempotenz- und Auto-Resolve-Logik."""
-    
     @staticmethod
     def _generate_signature(secret: str, payload_bytes: bytes) -> str:
         return hmac.new(secret.encode('utf-8'), payload_bytes, hashlib.sha256).hexdigest()
 
     @classmethod
-    def dispatch_event(cls, url: str, secret_token: str, payload: dict[str, Any], previous_state_failed: bool) -> None:
-        """
-        Wertet den aktuellen und vorherigen Status aus, um Ticket-Erstellung oder Auto-Close zu triggern.
-        """
+    def dispatch_event(cls, url: str, secret_token: str, payload: dict[str, Any], previous_state_failed: bool, db: Session = None) -> None:
         current_status_failed = any(
             f.get('status') == 'FAIL' or f.get('severity') in ['HIGH', 'CRITICAL'] 
             for f in payload.get('findings', [])
@@ -32,7 +29,7 @@ class PSADispatcher:
         elif not current_status_failed and previous_state_failed:
             action = "RESOLVE_TICKET"
         elif not current_status_failed and not previous_state_failed:
-            return  # Nichts zu tun, System war und ist gesund.
+            return
 
         psa_payload = {
             "aegis_meta": {
@@ -53,13 +50,30 @@ class PSADispatcher:
         req.add_header('X-Aegis-Signature', signature)
         req.add_header('X-Aegis-Idempotency-Key', f"{payload.get('hostname')}-{payload.get('module_name')}-{action}")
 
-        # Retries & Backoff für robuste MSP-Integration
+        success = False
         for attempt in range(3):
             try:
                 with urllib.request.urlopen(req, timeout=10) as response:
-                    logger.info(f"PSA Action {action} dispatched to {url}. HTTP {response.status}")
+                    logger.info(f"PSA Action {action} dispatched. HTTP {response.status}")
+                    success = True
                     break
             except urllib.error.URLError as e:
-                logger.warning(f"PSA Dispatch attempt {attempt + 1} failed: {str(e)}")
-                if attempt == 2:
-                    logger.error(f"PSA Dispatch permanently failed for {url} after 3 attempts.")
+                logger.warning(f"PSA Dispatch Versuch {attempt + 1} fehlgeschlagen: {str(e)}")
+
+        # Dead-Letter Logging bei dauerhaftem Fehler
+        if not success and db:
+            dlq_entry = ModuleResult(
+                tenant_id=payload.get("tenant_id"),
+                hostname=payload.get("hostname"),
+                module_name="DEAD_LETTER_QUEUE",
+                findings=json.dumps([{
+                    "status": "FAIL",
+                    "code": "PSA_DISPATCH_FAILED",
+                    "severity": "HIGH",
+                    "message": f"Dauerhafter Zustellungsfehler an PSA Endpoint: {url}",
+                    "compliance": []
+                }]),
+                audit_meta={"failed_payload": psa_payload, "failed_at": datetime.now(timezone.utc).isoformat()}
+            )
+            db.add(dlq_entry)
+            db.commit()
