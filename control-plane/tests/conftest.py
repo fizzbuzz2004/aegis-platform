@@ -7,25 +7,17 @@ os.environ["ADMIN_INITIAL_PASSWORD"] = "TestPassword123!"
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from app.main import app
-from app.core.database import Base, get_db
+from app.core.database import Base, engine, SessionLocal, get_db
 from app.core.security import get_password_hash
 from app.models.orm import User, UserRole
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 @pytest.fixture(scope="function")
 def db():
+    # Erstellt die Tabellen auf dem exakt selben Engine-Objekt, das auch die App nutzt
     Base.metadata.create_all(bind=engine)
-    db = TestingSessionLocal()
+    db_session = SessionLocal()
     
     admin_user = User(
         username="admin",
@@ -34,13 +26,13 @@ def db():
         is_active=True,
         must_change_password=False
     )
-    db.add(admin_user)
-    db.commit()
+    db_session.add(admin_user)
+    db_session.commit()
     
     try:
-        yield db
+        yield db_session
     finally:
-        db.close()
+        db_session.close()
         Base.metadata.drop_all(bind=engine)
 
 @pytest.fixture(scope="function")
