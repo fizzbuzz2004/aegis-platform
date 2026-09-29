@@ -9,8 +9,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import app.main
-app = app.main.app
+# Sauberer Standard-Import (da Pydantic & .env nun korrekt konfiguriert sind)
+from app.main import app
+
 from app.core.database import Base, engine, SessionLocal, get_db
 from app.core.security import get_password_hash
 
