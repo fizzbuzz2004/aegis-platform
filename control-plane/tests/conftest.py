@@ -1,16 +1,11 @@
 import os
-
-# Dummy-Umgebungswerte für Tests setzen, bevor Pydantic die Settings lädt
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-os.environ["SECRET_KEY"] = "test_secret_key_fuer_unit_tests_123456789"
-os.environ["ADMIN_INITIAL_PASSWORD"] = "TestPassword123!"
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-# Sauberer Standard-Import (da Pydantic & .env nun korrekt konfiguriert sind)
-from app.main import app
+# Kugelsicherer Import, um Paket-Kollisionen zu verhindern
+import app.main
+app = app.main.app
 
 from app.core.database import Base, engine, SessionLocal, get_db
 from app.core.security import get_password_hash
@@ -19,7 +14,7 @@ from app.core.security import get_password_hash
 import app.models.orm
 from app.models.orm import User, UserRole
 
-# Schutz vor Package-Kollisionen: Verifiziere, dass app eine FastAPI-Instanz ist
+# Schutzprüfung
 assert isinstance(app, FastAPI), "Importiertes 'app' ist keine FastAPI-Instanz!"
 
 @pytest.fixture(scope="function")
