@@ -16,16 +16,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-# 3. Direkt und unmissverständlich aus app.main importieren
-from app.main import app
+# 3. Eindeutiger Alias, um jegliche NamensKollision mit dem 'app'-Ordner zu killen!
+from app.main import app as fastapi_app
 
 from app.core.database import Base, engine, SessionLocal, get_db
 from app.core.security import get_password_hash
 import app.models.orm
 from app.models.orm import User, UserRole
 
-# Letzter Schutzschild
-assert isinstance(app, FastAPI), f"Fehler: 'app' ist kein FastAPI, sondern ein {type(app)}"
+# 4. Schutzschild mit dem eindeutigen Namen prüfen
+assert isinstance(fastapi_app, FastAPI), f"Fehler: 'fastapi_app' ist kein FastAPI, sondern ein {type(fastapi_app)}"
 
 @pytest.fixture(scope="function")
 def db():
@@ -55,7 +55,7 @@ def client(db):
             yield db
         finally:
             pass
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
+    fastapi_app.dependency_overrides[get_db] = override_get_db
+    with TestClient(fastapi_app) as c:
         yield c
-    app.dependency_overrides.clear()
+    fastapi_app.dependency_overrides.clear()
