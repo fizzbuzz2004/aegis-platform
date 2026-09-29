@@ -7,7 +7,10 @@ from app.models.orm import ModuleResult
 def test_psa_dispatch_timeout_triggers_dlq(db):
     tenant_id = 1
     hostname = "test-host-01"
-    webhook_url = "https://external-psa-system.invalid/webhook"
+    
+    # Ändere .invalid zu einer echten Domain, damit der SSRF-Check nicht wegen DNS abbricht
+    webhook_url = "https://example.com/webhook"
+    
     secret = "secret_token_abc"
     
     payload = {
@@ -35,7 +38,7 @@ def test_psa_dispatch_timeout_triggers_dlq(db):
             db=db
         )
 
-    # Verifiziere, dass der Fehler sauber in der Dead-Letter-Queue (Modul: DEAD_LETTER_QUEUE) gepuffert wurde
+    # Verifiziere, dass der Fehler sauber in der Dead-Letter-Queue gepuffert wurde
     dlq_entry = db.query(ModuleResult).filter(
         ModuleResult.tenant_id == tenant_id,
         ModuleResult.module_name == "DEAD_LETTER_QUEUE"
