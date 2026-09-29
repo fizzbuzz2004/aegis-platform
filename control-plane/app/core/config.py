@@ -5,8 +5,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Aegis Control Plane API"
     VERSION: str = "1.0.0"
     
-    # Werte werden automatisch aus /run/secrets/<variablen_name> geladen, 
-    # falls keine normale Umgebungsvariable existiert.
+    # Werte werden automatisch aus der .env-Datei oder /run/secrets/ geladen
     DATABASE_URL: str
     SECRET_KEY: str
     ADMIN_INITIAL_PASSWORD: str
@@ -14,10 +13,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "120"))
 
-    # Pydantic liest die Dateien im angegebenen Ordner aus
+    # WICHTIG: env_file hinzugefügt, damit Pydantic Ihre .env-Datei ausliest
     model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
         secrets_dir="/run/secrets", 
-        case_sensitive=True
+        case_sensitive=True,
+        extra="ignore"
     )
 
 settings = Settings()
