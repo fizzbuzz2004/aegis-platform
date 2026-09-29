@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -10,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis_secure_password_2026}
       POSTGRES_DB: ${POSTGRES_DB:-aegis_db}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -32,6 +30,7 @@ services:
       SECRET_KEY: ${SECRET_KEY:-aegis_prod_jwt_secret_key_change_in_env_2026}
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 120
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-aegis_admin_password_2026}
     depends_on:
       postgres:
         condition: service_healthy
