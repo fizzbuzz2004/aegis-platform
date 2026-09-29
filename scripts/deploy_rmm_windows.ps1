@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Aegis MSP Agent Deployment Skript für Windows
+    Aegis MSP Agent Deployment Skript für Windows (RMM & Intune Ready)
 .DESCRIPTION
     Lädt den Aegis Compliance Agenten herunter, registriert den Endpoint 
-    über die Control Plane API, konfiguriert den persistente Windows-Dienst 
+    über die Control Plane API, konfiguriert den persistenten Windows-Dienst 
     und richtet automatische Wiederherstellungsoptionen ein.
 .PARAMETER EnrollmentCode
     Der mandantenspezifische Registrierungscode aus dem Aegis Portal.
@@ -12,6 +12,8 @@
 .PARAMETER TestMode
     Ignoriert SSL-Zertifikatsfehler (nur für lokale VM-Testumgebungen nutzen!).
 #>
+
+#Requires -RunAsAdministrator
 
 [CmdletBinding()]
 param (
@@ -67,9 +69,23 @@ try {
         Write-Log "Hinweis bei Dienst-Bereinigung: $_" "WARN"
     }
 
-    # 2. Agent-Binärdatei herunterladen
+    # 2. Agent-Binärdatei herunterladen (mit RMM Retry-Logik)
     Write-Log "Lade Agent herunter von: $BinaryUrl"
-    Invoke-WebRequest -Uri $BinaryUrl -OutFile$ExePath -UseBasicParsing
+    $MaxRetries = 3$RetryCount = 0
+    $Downloaded =$false
+
+    while (!$Downloaded -and $RetryCount -lt$MaxRetries) {
+        try {
+            Invoke-WebRequest -Uri $BinaryUrl -OutFile$ExePath -UseBasicParsing -ErrorAction Stop
+            $Downloaded =$true
+            Write-Log "Download erfolgreich."
+        } catch {
+            $RetryCount++
+            Write-Log "Download fehlgeschlagen (Versuch $RetryCount von $MaxRetries):$_" "WARN"
+            if ($RetryCount -ge$MaxRetries) { throw "Konnte Aegis Agent nach $MaxRetries Versuchen nicht herunterladen." }
+            Start-Sleep -Seconds 5
+        }
+    }
 
     # 3. Endpoint bei der Control Plane registrieren
     Write-Log "Registriere Endpoint bei Control Plane..."
@@ -83,23 +99,40 @@ try {
     $Response = Invoke-RestMethod -Uri "$ServerUrl/api/v1/agents/register" -Method Post -Body $Payload -ContentType "application/json"
 
     if ($Response.status -eq "success" -and $Response.host_token) {
-        Write-Log "Registrierung erfolgreich. Schreibe Systemvariablen (Machine Scope)..."
+        Write-Log "Registrierung erfolgreich. Schreibe Systemvariablen..."
+        
+        # Systemweite Variablen setzen (für Shell-Zugriff und zukünftige Reboots)
         [Environment]::SetEnvironmentVariable("AEGIS_HOST_TOKEN", $Response.host_token, [EnvironmentVariableTarget]::Machine)
         [Environment]::SetEnvironmentVariable("AEGIS_SERVER_URL", $ServerUrl, [EnvironmentVariableTarget]::Machine)
 
         # 4. Windows Dienst einrichten
         Write-Log "Registriere Windows Dienst..."
-        # Wichtig: Ingame-Anführungszeichen im Pfad wegen möglicher Leerzeichen im Installationspfad
         sc.exe create "AegisAgent" binPath= "`"$ExePath`"" start= auto displayname= "Aegis Compliance Agent" | Out-Null
         
-        # Enterprise Best Practice: Automatischer Neustart bei Dienstabsturz (nach 60 Sekunden)
-        sc.exe failure "AegisAgent" reset= 86400 actions= restart/60000 | Out-Null
+        # CRITICAL FIX: Windows Dienste lesen neue Machine-Umgebungsvariablen nicht ohne Neustart ein.
+        # Wir injizieren die Variablen direkt in die Registry des Dienstes, damit er sofort starten kann.
+        $ServiceRegPath = "HKLM:\SYSTEM\CurrentControlSet\Services\AegisAgent"
+        $ServiceEnv = @(
+            "AEGIS_HOST_TOKEN=$($Response.host_token)",
+            "AEGIS_SERVER_URL=$ServerUrl"
+        )
+        Set-ItemProperty -Path $ServiceRegPath -Name "Environment" -Value $ServiceEnv -Type MultiString
+
+        # Enterprise Best Practice: Automatischer Neustart bei Dienstabsturz (nach 60s, unendlich oft)
+        sc.exe failure "AegisAgent" reset= 86400 actions= restart/60000/restart/60000/restart/60000 | Out-Null
 
         Write-Log "Starte Windows Dienst..."
         Start-Service -Name "AegisAgent"
         
-        Write-Log "=== Deployment erfolgreich abgeschlossen ===" "SUCCESS"
-        exit 0
+        # Überprüfe, ob der Dienst wirklich läuft
+        Start-Sleep -Seconds 2
+        $ServiceStatus = (Get-Service -Name "AegisAgent").Status
+        if ($ServiceStatus -eq "Running") {
+            Write-Log "=== Deployment erfolgreich abgeschlossen (Service Running) ===" "SUCCESS"
+            exit 0
+        } else {
+            throw "Dienst wurde installiert, aber startete unerwartet nicht. Status: $ServiceStatus"
+        }
     } else {
         throw "API meldete Fehler oder ungültige Antwort: $($Response | ConvertTo-Json -Compress)"
     }
