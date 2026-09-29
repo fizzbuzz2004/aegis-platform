@@ -9,7 +9,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.main import app
+import app.main
+app = app.main.app
 from app.core.database import Base, engine, SessionLocal, get_db
 from app.core.security import get_password_hash
 
