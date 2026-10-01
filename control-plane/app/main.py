@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
 from app.core.modules import DEFAULT_TENANT_MODULES
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, verify_password
 from app.core.limiter import limiter  # Zentraler Import zur Vermeidung zirkulärer Imports
 from app.models.orm import User, Tenant, TenantModule
 from app.api.v1.router import api_router
@@ -21,21 +21,29 @@ logger = logging.getLogger(__name__)
 def seed_initial_data():
     db = SessionLocal()
     try:
-        if not db.query(User).filter(User.username == "admin").first():
-            initial_pw = settings.ADMIN_INITIAL_PASSWORD
-            
-            # ISO27001: Passwörter niemals loggen, Passwortrichtlinie hart durchsetzen!
-            if not initial_pw or len(initial_pw) < 12:
-                logger.error("KRITISCH: 'ADMIN_INITIAL_PASSWORD' nicht gesetzt oder zu kurz (< 12).")
-                sys.exit(1)
+        initial_pw = settings.ADMIN_INITIAL_PASSWORD
 
+        # Bootstrap credentials must be usable after restarts with a persistent DB.
+        if not initial_pw or len(initial_pw) < 12:
+            logger.error("KRITISCH: 'ADMIN_INITIAL_PASSWORD' nicht gesetzt oder zu kurz (< 12).")
+            sys.exit(1)
+
+        admin_user = db.query(User).filter(User.username == "admin").first()
+        if not admin_user:
             admin_user = User(
-                username="admin", 
-                hashed_password=get_password_hash(initial_pw), 
+                username="admin",
+                hashed_password=get_password_hash(initial_pw),
                 is_active=True,
-                must_change_password=True
+                must_change_password=True,
             )
             db.add(admin_user)
+        elif admin_user.must_change_password:
+            try:
+                password_matches = verify_password(initial_pw, admin_user.hashed_password)
+            except (TypeError, ValueError):
+                password_matches = False
+            if not password_matches:
+                admin_user.hashed_password = get_password_hash(initial_pw)
         
         pilot_tenant = db.query(Tenant).filter(Tenant.id == 1).first()
         if not pilot_tenant:
