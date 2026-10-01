@@ -1,4 +1,5 @@
 import secrets
+import logging
 from typing import List, Optional
 import pyotp
 from fastapi import APIRouter, Depends, Form, HTTPException, status
@@ -13,6 +14,7 @@ from app.models.module_state import ToggleRequest, TokenResponse
 from app.models.orm import ModuleResult, Tenant, TenantModule, User
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class TenantCreateSchema(BaseModel):
@@ -43,7 +45,20 @@ def admin_login(
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    if not user:
+        logger.warning("Admin login rejected: account lookup returned no user.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Ungültiger Username oder Passwort",
+        )
+
+    try:
+        password_matches = verify_password(form_data.password, user.hashed_password)
+    except (TypeError, ValueError):
+        logger.exception("Admin login password hash could not be verified.")
+        password_matches = False
+    if not password_matches:
+        logger.warning("Admin login rejected: password verification failed for existing account.")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Ungültiger Username oder Passwort",

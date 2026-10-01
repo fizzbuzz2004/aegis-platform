@@ -37,6 +37,7 @@ def seed_initial_data():
                 must_change_password=True,
             )
             db.add(admin_user)
+            logger.info("Seeded initial admin account from ADMIN_INITIAL_PASSWORD.")
         elif admin_user.must_change_password:
             try:
                 password_matches = verify_password(initial_pw, admin_user.hashed_password)
@@ -44,6 +45,21 @@ def seed_initial_data():
                 password_matches = False
             if not password_matches:
                 admin_user.hashed_password = get_password_hash(initial_pw)
+                logger.warning("Reconciled bootstrap admin password hash from ADMIN_INITIAL_PASSWORD.")
+            else:
+                logger.info("Bootstrap admin password hash matches ADMIN_INITIAL_PASSWORD.")
+        else:
+            try:
+                password_matches = verify_password(initial_pw, admin_user.hashed_password)
+            except (TypeError, ValueError):
+                password_matches = False
+            if password_matches:
+                logger.info("Configured bootstrap password matches the preserved admin password.")
+            else:
+                logger.warning(
+                    "ADMIN_INITIAL_PASSWORD does not match the preserved admin password; "
+                    "the stored password was retained because must_change_password is false."
+                )
         
         pilot_tenant = db.query(Tenant).filter(Tenant.id == 1).first()
         if not pilot_tenant:

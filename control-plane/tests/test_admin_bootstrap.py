@@ -48,7 +48,7 @@ def test_seed_updates_stale_initial_admin_password(monkeypatch):
         engine.dispose()
 
 
-def test_seed_preserves_admin_password_after_password_change(monkeypatch):
+def test_seed_preserves_admin_password_after_password_change(monkeypatch, caplog):
     engine, session_factory = _bootstrap_database(monkeypatch)
     monkeypatch.setattr(main.settings, "ADMIN_INITIAL_PASSWORD", "ConfiguredAdminPassword2026!")
     monkeypatch.setattr(main, "verify_password", lambda plain, hashed: hashed == f"hash:{plain}")
@@ -71,6 +71,7 @@ def test_seed_preserves_admin_password_after_password_change(monkeypatch):
         admin_user = db.query(User).filter_by(username="admin").one()
         assert admin_user.hashed_password == "hash:user-selected-password"
         assert admin_user.must_change_password is False
+        assert "ADMIN_INITIAL_PASSWORD does not match" in caplog.text
         db.close()
     finally:
         Base.metadata.drop_all(bind=engine)
