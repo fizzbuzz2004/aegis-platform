@@ -17,25 +17,62 @@ COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-${dotenv_project_name:-aegis-platf
 export COMPOSE_PROJECT_NAME
 
 compose=(docker compose --env-file "$ENV_FILE" --project-directory "$REPOSITORY_ROOT" -p "$COMPOSE_PROJECT_NAME" -f "$REPOSITORY_ROOT/docker-compose.yml")
+project_label="label=com.docker.compose.project=$COMPOSE_PROJECT_NAME"
 
 cd "$REPOSITORY_ROOT"
 docker info >/dev/null
 "${compose[@]}" config --quiet
 
+remove_project_runtime_state() {
+    local container_id
+    local network_id
+    local remaining
+    local project_containers=()
+    local project_networks=()
+
+    mapfile -t project_containers < <(docker ps -aq --filter "$project_label")
+    for container_id in "${project_containers[@]}"; do
+        if ! docker rm -f "$container_id" >/dev/null 2>&1 && docker inspect "$container_id" >/dev/null 2>&1; then
+            echo "Could not remove project container $container_id" >&2
+            return 1
+        fi
+    done
+
+    mapfile -t project_networks < <(docker network ls -q --filter "$project_label")
+    for network_id in "${project_networks[@]}"; do
+        if ! docker network rm "$network_id" >/dev/null 2>&1 && docker network inspect "$network_id" >/dev/null 2>&1; then
+            echo "Could not remove project network $network_id" >&2
+            return 1
+        fi
+    done
+
+    remaining="$(docker ps -aq --filter "$project_label")"
+    if [[ -n "$remaining" ]]; then
+        echo "Project containers remain after cleanup: $remaining" >&2
+        return 1
+    fi
+}
+
 echo "Stopping existing services for project $COMPOSE_PROJECT_NAME (database volume is preserved)..."
 if ! "${compose[@]}" down --remove-orphans --timeout 30; then
-    echo "Compose down reported stale state; removing only existing containers labeled for this project."
-    mapfile -t project_containers < <(docker ps -aq --filter "label=com.docker.compose.project=$COMPOSE_PROJECT_NAME")
-    if ((${#project_containers[@]})); then
-        docker rm -f "${project_containers[@]}"
-    fi
+    echo "Compose down reported stale state; reconciling objects labeled for this project."
 fi
+remove_project_runtime_state
 
 echo "Rebuilding Control Plane image..."
 "${compose[@]}" build --pull --no-cache control-plane
 
 echo "Starting services..."
-"${compose[@]}" up -d --force-recreate --remove-orphans
+if ! "${compose[@]}" up -d --force-recreate --remove-orphans; then
+    echo "Compose up failed; removing this project's stale containers/networks and retrying once." >&2
+    remove_project_runtime_state
+    if ! "${compose[@]}" up -d --force-recreate --remove-orphans; then
+        echo "Compose up failed after project-scoped recovery; recent logs follow." >&2
+        "${compose[@]}" ps -a >&2 || true
+        "${compose[@]}" logs --tail 100 >&2 || true
+        exit 1
+    fi
+fi
 
 for attempt in $(seq 1 60); do
     all_healthy=true
