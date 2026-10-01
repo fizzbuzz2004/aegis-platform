@@ -6,9 +6,30 @@
     <title>Aegis Compliance Console</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>[x-cloak] { display: none !important; }</style>
 </head>
-<body class="bg-slate-900 text-slate-100 font-sans min-h-screen p-8" x-data="dashboardApp()">
-    <div class="max-w-7xl mx-auto">
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen p-8" x-data="dashboardApp()" x-init="init()">
+    <section x-cloak x-show="!authenticated" class="max-w-md mx-auto mt-16 bg-slate-800 border border-slate-700 rounded-lg p-8 shadow-xl">
+        <h1 class="text-2xl font-bold text-cyan-400 mb-2">AEGIS // Anmeldung</h1>
+        <p class="text-sm text-slate-400 mb-6">Melde dich mit deinem Control-Plane-Administratorkonto an.</p>
+        <form class="space-y-4" @submit.prevent="login">
+            <label class="block text-sm text-slate-300">Benutzername
+                <input x-model="username" autocomplete="username" required class="mt-1 w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white">
+            </label>
+            <label class="block text-sm text-slate-300">Passwort
+                <input x-model="password" type="password" autocomplete="current-password" required class="mt-1 w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white">
+            </label>
+            <label class="block text-sm text-slate-300">MFA-Code, falls aktiviert
+                <input x-model="mfaCode" inputmode="numeric" autocomplete="one-time-code" class="mt-1 w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white">
+            </label>
+            <p x-show="loginError" x-text="loginError" role="alert" class="text-sm text-rose-400"></p>
+            <button type="submit" :disabled="loading" class="w-full bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 text-white font-semibold rounded px-4 py-2">
+                <span x-text="loading ? 'Anmeldung läuft...' : 'Anmelden'"></span>
+            </button>
+        </form>
+    </section>
+
+    <div x-cloak x-show="authenticated" class="max-w-7xl mx-auto">
         <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
             <h1 class="text-2xl font-bold tracking-tight text-cyan-400">AEGIS // Security & Compliance Control</h1>
             <div class="flex gap-4">
@@ -18,8 +39,16 @@
                     <option value="GOOD">Gut (&ge;90%)</option>
                 </select>
                 <input type="text" x-model="searchNorm" placeholder="Norm filtern (z.B. NIS2, ISO27001)" class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm">
+                <button @click="logout" class="border border-slate-600 hover:border-rose-500 rounded px-3 py-1.5 text-sm">Abmelden</button>
             </div>
         </header>
+
+        <p x-show="loading" class="text-sm text-slate-400" role="status">Dashboard-Daten werden geladen...</p>
+        <div x-show="dashboardError" class="mb-5 flex flex-wrap justify-between gap-3 border border-rose-800 bg-rose-950/40 rounded p-4" role="alert">
+            <p x-text="dashboardError" class="text-sm text-rose-300"></p>
+            <button @click="refresh" class="text-sm underline">Erneut versuchen</button>
+        </div>
+        <p x-show="!loading && !dashboardError && tenants.length === 0" class="text-sm text-slate-400">Noch keine Mandanten oder Agent-Ergebnisse vorhanden.</p>
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <template x-for="tenant in filteredTenants" :key="tenant.id">
@@ -38,7 +67,7 @@
     </div>
 
     <!-- Detail Drawer -->
-    <div x-show="drawerOpen" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end" x-transition.opacity>
+    <div x-cloak x-show="authenticated && drawerOpen" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end" x-transition.opacity>
         <div class="w-full max-w-xl bg-slate-800 h-full p-6 overflow-y-auto border-l border-slate-700 shadow-2xl" @click.away="drawerOpen = false">
             <div class="flex justify-between items-center border-b border-slate-700 pb-4 mb-6">
                 <h3 class="text-xl font-bold text-cyan-400" x-text="selectedTenant?.name"></h3>
@@ -54,16 +83,16 @@
                             <span class="text-xs text-slate-500" x-text="host.os_info"></span>
                         </div>
                         <div class="space-y-2">
-                            <template x-for="res in host.results" :key="res.module_name">
+                            <template x-for="res in host.results" :key="res.module_name + res.timestamp">
                                 <div class="text-xs bg-slate-800 p-2 rounded">
                                     <div class="flex justify-between text-slate-300 font-semibold mb-1">
                                         <span x-text="res.module_name"></span>
                                         <span x-text="res.timestamp"></span>
                                     </div>
-                                    <template x-for="f in res.findings" :key="f.code">
-                                        <div class="flex justify-between items-center py-0.5">
-                                            <span class="text-slate-400" x-text="f.message"></span>
-                                            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" :class="f.status === 'PASS' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'" x-text="f.status"></span>
+                                    <template x-for="(finding, index) in res.findings" :key="finding.code + index">
+                                        <div class="flex justify-between items-center py-0.5 gap-3">
+                                            <span class="text-slate-400" x-text="finding.message"></span>
+                                            <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold" :class="finding.status === 'PASS' ? 'bg-emerald-950 text-emerald-400' : (finding.status === 'WARN' || finding.status === 'INFO' ? 'bg-amber-950 text-amber-300' : 'bg-rose-950 text-rose-400')" x-text="finding.status"></span>
                                         </div>
                                     </template>
                                 </div>
@@ -79,17 +108,81 @@
         function dashboardApp() {
             return {
                 tenants: [],
+                username: '',
+                password: '',
+                mfaCode: '',
+                loginError: '',
+                dashboardError: '',
+                loading: false,
+                authenticated: false,
                 filterStatus: 'ALL',
                 searchNorm: '',
                 drawerOpen: false,
                 selectedTenant: null,
                 async init() {
                     const token = localStorage.getItem('aegis_admin_token');
-                    const res = await fetch('/api/v1/dashboard/data', { headers: { 'Authorization': `Bearer ${token}` } });
-                    if(res.ok) {
-                        const data = await res.json();
-                        this.tenants = data.tenants;
+                    if (token) await this.loadDashboard(token);
+                },
+                async login() {
+                    this.loading = true;
+                    this.loginError = '';
+                    try {
+                        const form = new URLSearchParams({ username: this.username, password: this.password });
+                        if (this.mfaCode) form.set('mfa_code', this.mfaCode);
+                        const response = await fetch('/api/v1/auth/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: form
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok || !data.access_token) {
+                            throw new Error(data.detail || `Anmeldung fehlgeschlagen (HTTP ${response.status}).`);
+                        }
+                        localStorage.setItem('aegis_admin_token', data.access_token);
+                        this.password = '';
+                        this.mfaCode = '';
+                        await this.loadDashboard(data.access_token);
+                    } catch (error) {
+                        this.loginError = error.message || 'Control Plane konnte nicht erreicht werden.';
+                    } finally {
+                        this.loading = false;
                     }
+                },
+                async loadDashboard(token) {
+                    this.loading = true;
+                    this.dashboardError = '';
+                    try {
+                        const response = await fetch('/api/v1/dashboard/data', {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        if (response.status === 401 || response.status === 403) {
+                            localStorage.removeItem('aegis_admin_token');
+                            this.authenticated = false;
+                            this.loginError = 'Sitzung abgelaufen oder nicht autorisiert. Bitte erneut anmelden.';
+                            return;
+                        }
+                        if (!response.ok) {
+                            throw new Error(data.detail || `Dashboard-Daten konnten nicht geladen werden (HTTP ${response.status}).`);
+                        }
+                        this.tenants = Array.isArray(data.tenants) ? data.tenants : [];
+                        this.authenticated = true;
+                    } catch (error) {
+                        this.authenticated = true;
+                        this.dashboardError = error.message || 'Control Plane konnte nicht erreicht werden.';
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                refresh() {
+                    const token = localStorage.getItem('aegis_admin_token');
+                    if (token) this.loadDashboard(token);
+                },
+                logout() {
+                    localStorage.removeItem('aegis_admin_token');
+                    this.tenants = [];
+                    this.authenticated = false;
+                    this.drawerOpen = false;
                 },
                 get filteredTenants() {
                     return this.tenants.filter(t => {

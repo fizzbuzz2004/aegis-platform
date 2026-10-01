@@ -97,12 +97,13 @@ def submit_results(
         except Exception:
             pass
 
+    source_ip = request.client.host if request.client else "unknown"
     result_entry = ModuleResult(
         tenant_id=host.tenant_id,
         hostname=host.hostname,
         module_name=payload.module_name,
         findings=findings_json,
-        audit_meta={"source_ip": request.client.host, "received_at": datetime.now(timezone.utc).isoformat()}
+        audit_meta={"source_ip": source_ip, "received_at": datetime.now(timezone.utc).isoformat()}
     )
     db.add(result_entry)
     db.commit()
