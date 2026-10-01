@@ -2,10 +2,21 @@
 set -Eeuo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-aegis-platform-vbox}"
+if [[ -f "$REPOSITORY_ROOT/.env" ]]; then
+    ENV_FILE="$REPOSITORY_ROOT/.env"
+elif [[ -f "$REPOSITORY_ROOT/control-plane/.env" ]]; then
+    ENV_FILE="$REPOSITORY_ROOT/control-plane/.env"
+else
+    echo "No .env file found at repository root or control-plane/.env." >&2
+    echo "Copy .env.example to one of those locations and set SECRET_KEY and ADMIN_INITIAL_PASSWORD." >&2
+    exit 1
+fi
+
+dotenv_project_name="$(sed -n 's/^[[:space:]]*COMPOSE_PROJECT_NAME[[:space:]]*=[[:space:]]*//p' "$ENV_FILE" | tail -n 1 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-${dotenv_project_name:-aegis-platform}}"
 export COMPOSE_PROJECT_NAME
 
-compose=(docker compose --project-directory "$REPOSITORY_ROOT" -p "$COMPOSE_PROJECT_NAME" -f "$REPOSITORY_ROOT/docker-compose.yml")
+compose=(docker compose --env-file "$ENV_FILE" --project-directory "$REPOSITORY_ROOT" -p "$COMPOSE_PROJECT_NAME" -f "$REPOSITORY_ROOT/docker-compose.yml")
 
 cd "$REPOSITORY_ROOT"
 docker info >/dev/null

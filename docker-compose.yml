@@ -27,10 +27,10 @@ services:
       - "${CONTROL_PLANE_BIND_ADDRESS:-0.0.0.0}:${CONTROL_PLANE_PUBLISHED_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-aegis_admin}:${POSTGRES_PASSWORD:-aegis_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aegis_db}
-      SECRET_KEY: ${SECRET_KEY:-aegis_prod_jwt_secret_key_change_in_env_2026}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in the Compose .env file}
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 120
-      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-aegis_admin_password_2026}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:?Set ADMIN_INITIAL_PASSWORD in the Compose .env file}
     depends_on:
       postgres:
         condition: service_healthy

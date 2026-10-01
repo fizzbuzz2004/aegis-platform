@@ -79,7 +79,7 @@ def test_seed_preserves_admin_password_after_password_change(monkeypatch):
 
 def test_configured_bootstrap_password_authenticates_through_login_route(monkeypatch):
     engine, session_factory = _bootstrap_database(monkeypatch)
-    password = "ConfiguredAdminPassword2026!"
+    password = "ChangeThisAdminPassword2026!"
     monkeypatch.setattr(main.settings, "ADMIN_INITIAL_PASSWORD", password)
 
     def override_get_db():
