@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 $RepositoryRoot = Split-Path -Parent $PSScriptRoot
 $AgentDirectory = Join-Path $RepositoryRoot "agent-go"
 $OutputDirectory = Join-Path $RepositoryRoot "dist"
+$AgentVersion = if ($env:AEGIS_AGENT_VERSION) { $env:AEGIS_AGENT_VERSION } else { "dev" }
 $PreviousGoos = $env:GOOS
 $PreviousGoarch = $env:GOARCH
 $PreviousCgoEnabled = $env:CGO_ENABLED
@@ -13,11 +14,11 @@ try {
     $env:GOARCH = "amd64"
 
     $env:GOOS = "windows"
-    go build -trimpath -ldflags "-s -w" -o (Join-Path $OutputDirectory "aegis-agent.exe") .
+    go build -trimpath -ldflags "-s -w -X main.version=$AgentVersion" -o (Join-Path $OutputDirectory "aegis-agent.exe") .
     if ($LASTEXITCODE -ne 0) { throw "Windows-Agent-Build fehlgeschlagen ($LASTEXITCODE)" }
 
     $env:GOOS = "linux"
-    go build -trimpath -ldflags "-s -w" -o (Join-Path $OutputDirectory "aegis-agent-linux") .
+    go build -trimpath -ldflags "-s -w -X main.version=$AgentVersion" -o (Join-Path $OutputDirectory "aegis-agent-linux") .
     if ($LASTEXITCODE -ne 0) { throw "Linux-Agent-Build fehlgeschlagen ($LASTEXITCODE)" }
 } finally {
     Pop-Location

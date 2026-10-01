@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -9,6 +10,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
     ADMIN_INITIAL_PASSWORD: str
+
+    AGENT_UPDATE_VERSION: Optional[str] = None
+    AGENT_UPDATE_URL: Optional[str] = None
+    AGENT_UPDATE_SHA256: Optional[str] = None
+    AGENT_UPDATE_OS_INFO: Optional[str] = None
     
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "120"))

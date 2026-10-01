@@ -8,12 +8,15 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/aegis-platform/agent-go/core"
 	"github.com/aegis-platform/agent-go/probes"
 )
+
+var version = "dev"
 
 func main() {
 	onceFlag := flag.Bool("once", false, "Einmalige Ausführung")
@@ -111,6 +114,9 @@ func main() {
 	if tokenValue == "" && *enrollCode == "" {
 		log.Printf("[AUTH WARN] Kein Host-Token konfiguriert. Agent zuerst mit -register <enroll_code> registrieren.")
 	}
+	if runtime.GOOS == "linux" && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(serverURLValue)), "https://") {
+		log.Printf("[UPDATE WARN] Auto-Update deaktiviert: Die Control-Plane-URL muss HTTPS verwenden. Sync-Zyklen laufen weiter.")
+	}
 
 	if *enrollCode != "" {
 		newToken, err := syncClient.RegisterDevice(context.Background(), *enrollCode)
@@ -127,7 +133,7 @@ func main() {
 
 	pCtx := probes.ProbeContext{OSName: runtime.GOOS, Hostname: hostname}
 
-	runCycle := func(ctx context.Context) {
+	runCycle := func(ctx context.Context) bool {
 		fmt.Println("[RECONCILE] Fragt Soll-Zustand ab...")
 		modules, err := syncClient.FetchDesiredState(ctx)
 		if err != nil {
@@ -136,7 +142,7 @@ func main() {
 			if succeeded > 0 || failed > 0 {
 				fmt.Printf("[TELEMETRY] Puffer-Flush: %d erfolgreich, %d verbleibend\n", succeeded, failed)
 			}
-			return
+			return false
 		}
 		succeeded, failed := syncClient.FlushOfflineQueue(ctx)
 		if succeeded > 0 || failed > 0 {
@@ -192,6 +198,19 @@ func main() {
 				}
 			}
 		}
+
+		updated, updateErr := syncClient.CheckAndApplyUpdate(ctx, version, func(event string) {
+			if _, logErr := worm.Log("AUDIT [agent_update] " + event); logErr != nil {
+				log.Printf("[WORM ERROR] Update-Ereignis konnte nicht protokolliert werden: %v", logErr)
+			}
+		})
+		if updateErr != nil {
+			fmt.Printf("[UPDATE WARN] Update wurde nicht angewendet: %v\n", updateErr)
+		}
+		if updated {
+			fmt.Println("[UPDATE] Binary ersetzt; Agent beendet sich für den systemd-Neustart.")
+		}
+		return updated
 	}
 
 	if *onceFlag {
@@ -216,12 +235,16 @@ func main() {
 		rootCancel()
 	}()
 
-	runCycle(rootCtx)
+	if runCycle(rootCtx) {
+		rootCancel()
+	}
 
 	for {
 		select {
 		case <-ticker.C:
-			runCycle(rootCtx)
+			if runCycle(rootCtx) {
+				rootCancel()
+			}
 		case <-rootCtx.Done():
 			fmt.Println("[SHUTDOWN] Flush verbleibender Telemetrie...")
 			flushCtx, fCancel := context.WithTimeout(context.Background(), 5*time.Second)

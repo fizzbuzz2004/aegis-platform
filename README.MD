@@ -109,6 +109,12 @@ sudo ./aegis-agent-linux -debug -once
 
 `-debug` protokolliert Endpunkte, HTTP-Status und Netzwerkfehler, niemals den Tokenwert. Unter Linux benötigt das Anlegen der Konfiguration Schreibrechte für `/etc/aegis`; Windows muss mit Rechten zum Schreiben in ProgramData laufen.
 
+## Agent Auto-Update (Linux)
+
+Der Control-Plane-Endpunkt `GET /api/v1/agents/update` liefert Release-Metadaten nur an Hosts mit gültigem `Authorization: Bearer <host_token>`. Für Updates muss auch die Agent-URL der Control Plane HTTPS verwenden; bei einer HTTP-URL laufen normale Sync-Zyklen weiter, aber Auto-Update bleibt deaktiviert. Veröffentliche das Linux-Binary auf einem HTTPS-fähigen Artefaktserver und setze `AGENT_UPDATE_VERSION`, `AGENT_UPDATE_URL`, `AGENT_UPDATE_SHA256` und `AGENT_UPDATE_OS_INFO` in der Control-Plane-Umgebung. `AGENT_UPDATE_OS_INFO` muss zum Binary passen, zum Beispiel `linux-amd64` oder `linux-arm64`. Alle vier Werte müssen gesetzt sein; ohne Konfiguration ist Auto-Update deaktiviert. Berechne den Digest für exakt die ausgelieferte Datei, zum Beispiel mit `sha256sum aegis-agent-linux-x64`.
+
+Baue jedes Release mit derselben Version im Binary, zum Beispiel `AEGIS_AGENT_VERSION=1.2.3 ./scripts/build.sh`. Der Linux-Agent fragt nach einem erfolgreichen Reconcile-Zyklus nach Updates, lädt die Datei über HTTPS in sein Installationsverzeichnis, prüft SHA-256 und ersetzt das Binary atomar. Danach beendet er sich, damit `systemd` den aktualisierten Agenten neu startet. Der Dienst muss `Restart=always` oder `Restart=on-failure` verwenden und Schreibrechte auf das Binary-Verzeichnis haben. Die Prüfsumme schützt vor Übertragungsfehlern; der Metadaten-Endpunkt und Artefaktserver müssen zusätzlich über vertrauenswürdiges TLS erreichbar sein.
+
 ## Neue Agent-Probe
 
 Lege eine Go-Datei in `agent-go/probes/` an und registriere einen `ProbeRunner` in `init()`. Beispiel: Die Probe `firewall_status` ist in `probes/firewall.go` umgesetzt und erscheint nach dem Build als Modulname. Für einen neuen Modulnamen wird kein Datenbankschema angepasst: `POST /api/v1/admin/toggle` legt einen unbekannten `TenantModule.module_name` als String an; der Agent führt ihn aus, wenn seine Probe mit exakt diesem Namen registriert ist.
