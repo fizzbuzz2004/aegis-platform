@@ -1,6 +1,7 @@
 import logging
 import secrets
 import sys
+import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -12,7 +13,8 @@ from app.core.database import Base, engine, SessionLocal
 from app.core.modules import DEFAULT_TENANT_MODULES
 from app.core.security import get_password_hash, verify_password
 from app.core.limiter import limiter  # Zentraler Import zur Vermeidung zirkulärer Imports
-from app.models.orm import User, Tenant, TenantModule
+from app.models.orm import User, UserRole, Tenant, TenantModule
+from app.services.backup_alerts import evaluate_backup_alerts
 from app.api.v1.router import api_router
 
 logging.basicConfig(level=logging.INFO)
@@ -33,6 +35,7 @@ def seed_initial_data():
             admin_user = User(
                 username="admin",
                 hashed_password=get_password_hash(initial_pw),
+                role=UserRole.TECHNICIAN,
                 is_active=True,
                 must_change_password=True,
             )
@@ -85,7 +88,31 @@ def seed_initial_data():
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     seed_initial_data()
-    yield
+
+    async def periodic_backup_alerts():
+        while True:
+            def evaluate():
+                db = SessionLocal()
+                try:
+                    evaluate_backup_alerts(db)
+                finally:
+                    db.close()
+
+            try:
+                await asyncio.to_thread(evaluate)
+            except Exception:
+                logger.exception("Backup-PSA-Auswertung fehlgeschlagen.")
+            await asyncio.sleep(900)
+
+    alert_task = asyncio.create_task(periodic_backup_alerts())
+    try:
+        yield
+    finally:
+        alert_task.cancel()
+        try:
+            await alert_task
+        except asyncio.CancelledError:
+            pass
 
 app = FastAPI(
     title=settings.PROJECT_NAME, 

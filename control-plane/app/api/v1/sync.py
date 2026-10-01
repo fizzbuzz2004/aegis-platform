@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.orm import Tenant, TenantModule, ModuleResult, HostDevice, WebhookConfig
 from app.models.module_state import ResultPayload, RegisterHostRequest, RegisterHostResponse
+from app.services.backup_alerts import evaluate_backup_alerts
 from app.services.psa_adapter import PSADispatcher
 from app.core.limiter import limiter
 
@@ -125,23 +126,23 @@ def submit_results(
     db: Session = Depends(get_db)
 ):
     findings_json = json.dumps([f.model_dump() for f in payload.findings])
-    
-    previous_result = db.query(ModuleResult).filter(
-        ModuleResult.tenant_id == host.tenant_id,
-        ModuleResult.hostname == host.hostname,
-        ModuleResult.module_name == payload.module_name
-    ).order_by(ModuleResult.timestamp.desc()).first()
 
     previous_failed = False
-    if previous_result:
-        try:
-            prev_findings = json.loads(previous_result.findings)
-            previous_failed = any(
-                f.get('status') == 'FAIL' or f.get('severity') in ['HIGH', 'CRITICAL'] 
-                for f in prev_findings
-            )
-        except Exception:
-            pass
+    if payload.module_name != "backup_probe":
+        previous_result = db.query(ModuleResult).filter(
+            ModuleResult.tenant_id == host.tenant_id,
+            ModuleResult.hostname == host.hostname,
+            ModuleResult.module_name == payload.module_name,
+        ).order_by(ModuleResult.timestamp.desc()).first()
+        if previous_result:
+            try:
+                previous_findings = json.loads(previous_result.findings)
+                previous_failed = any(
+                    finding.get("status") == "FAIL" or finding.get("severity") in {"HIGH", "CRITICAL"}
+                    for finding in previous_findings
+                )
+            except (TypeError, json.JSONDecodeError):
+                pass
 
     source_ip = request.client.host if request.client else "unknown"
     result_entry = ModuleResult(
@@ -154,22 +155,26 @@ def submit_results(
     db.add(result_entry)
     db.commit()
 
-    webhooks = db.query(WebhookConfig).filter(
-        WebhookConfig.tenant_id == host.tenant_id, 
-        WebhookConfig.is_active == True
-    ).all()
-    
-    if webhooks:
+    if payload.module_name == "backup_probe":
+        background_tasks.add_task(evaluate_backup_alerts, db)
+    else:
+        webhooks = db.query(WebhookConfig).filter(
+            WebhookConfig.tenant_id == host.tenant_id,
+            WebhookConfig.is_active.is_(True),
+        ).all()
         alert_payload = payload.model_dump()
         alert_payload["tenant_id"] = host.tenant_id
-        for wh in webhooks:
+        for webhook in webhooks:
             background_tasks.add_task(
-                PSADispatcher.dispatch_event, 
-                url=wh.url, 
-                secret_token=wh.secret_token, 
+                PSADispatcher.dispatch_event,
+                url=webhook.url,
+                secret_token=webhook.secret_token,
                 payload=alert_payload,
                 previous_state_failed=previous_failed,
-                db=db
+                db=db,
+                provider=webhook.provider,
+                auth_header=webhook.auth_header,
+                auth_value=webhook.auth_value,
             )
 
     return {"status": "success", "message": "Audit-Ergebnisse revisionssicher gespeichert."}

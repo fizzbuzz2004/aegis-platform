@@ -8,6 +8,8 @@ from app.core.database import Base
 class UserRole(str, enum.Enum):
     ADMIN = "ADMIN"
     JUNIOR = "JUNIOR"
+    TECHNICIAN = "TECHNICIAN"
+    CUSTOMER_ADMIN = "CUSTOMER_ADMIN"
 
 
 class User(Base):
@@ -16,7 +18,8 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.ADMIN, nullable=False)
+    role = Column(Enum(UserRole), default=UserRole.TECHNICIAN, nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     mfa_secret = Column(String(32), nullable=True)
     mfa_enabled = Column(Boolean, default=False, nullable=False)
     is_active = Column(Boolean, default=True)
@@ -54,6 +57,9 @@ class WebhookConfig(Base):
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
     url = Column(String(255), nullable=False)
     secret_token = Column(String(255), nullable=False)
+    provider = Column(String(30), nullable=False, default="generic")
+    auth_header = Column(String(100), nullable=True)
+    auth_value = Column(String(512), nullable=True)
     events = Column(String(255), default="ALL")
     is_active = Column(Boolean, default=True)
 
@@ -95,3 +101,13 @@ class ModuleResult(Base):
     audit_meta = Column(JSON, nullable=True)
 
     tenant = relationship("Tenant", back_populates="results")
+
+
+class PSAAlertState(Base):
+    __tablename__ = "psa_alert_states"
+
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), primary_key=True)
+    hostname = Column(String(100), primary_key=True)
+    module_name = Column(String(50), primary_key=True)
+    failing_since = Column(DateTime(timezone=True), nullable=True)
+    ticket_created_at = Column(DateTime(timezone=True), nullable=True)

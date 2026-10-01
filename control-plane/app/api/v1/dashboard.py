@@ -5,8 +5,8 @@ import json
 import os
 
 from app.core.database import get_db
-from app.core.security import get_current_admin_user
-from app.models.orm import User, Tenant, ModuleResult, HostDevice
+from app.core.security import assert_tenant_access, get_current_tenant_user
+from app.models.orm import User, UserRole, Tenant, ModuleResult, HostDevice
 
 router = APIRouter()
 
@@ -19,11 +19,15 @@ def get_dashboard_ui():
     return "<h3>Dashboard-Template nicht gefunden.</h3>", 404
 
 @router.get("/dashboard/data")
-def get_dashboard_data(current_user: User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
-    tenants = db.query(Tenant).all()
+def get_dashboard_data(current_user: User = Depends(get_current_tenant_user), db: Session = Depends(get_db)):
+    tenant_query = db.query(Tenant)
+    if current_user.role == UserRole.CUSTOMER_ADMIN:
+        tenant_query = tenant_query.filter(Tenant.id == current_user.tenant_id)
+    tenants = tenant_query.all()
     response_data = []
 
     for t in tenants:
+        assert_tenant_access(current_user, t.id)
         results = db.query(ModuleResult).filter(ModuleResult.tenant_id == t.id).all()
         hosts = db.query(HostDevice).filter(HostDevice.tenant_id == t.id).all()
         

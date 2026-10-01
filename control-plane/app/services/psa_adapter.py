@@ -18,12 +18,37 @@ class PSADispatcher:
         return hmac.new(secret.encode('utf-8'), payload_bytes, hashlib.sha256).hexdigest()
 
     @classmethod
-    def dispatch_event(cls, url: str, secret_token: str, payload: dict[str, Any], previous_state_failed: bool, db: Optional[Session] = None) -> None:
+    def _format_payload(cls, provider: str, payload: dict[str, Any]) -> dict[str, Any]:
+        meta = payload.get("aegis_meta", {})
+        title = f"Backup probe alert: {meta.get('hostname', 'unknown host')}"
+        description = json.dumps(payload.get("findings", []), ensure_ascii=True)
+        if provider == "autotask":
+            return {"ticket": {"title": title, "description": description, "companyID": payload.get("company_id"), "configurationItemID": payload.get("site_id")}, "aegis_meta": meta}
+        if provider == "connectwise":
+            return {"summary": title, "initialDescription": description, "company": {"id": payload.get("company_id")}, "site": {"id": payload.get("site_id")}, "aegis_meta": meta}
+        if provider == "ninjaone":
+            return {"alert": {"subject": title, "body": description, "deviceName": meta.get("hostname")}, "aegis_meta": meta}
+        if provider == "halopsa":
+            return {"summary": title, "details": description, "client_id": payload.get("company_id"), "site_id": payload.get("site_id"), "aegis_meta": meta}
+        return payload
+
+    @classmethod
+    def dispatch_event(
+        cls,
+        url: str,
+        secret_token: str,
+        payload: dict[str, Any],
+        previous_state_failed: bool = False,
+        db: Optional[Session] = None,
+        provider: str = "generic",
+        auth_header: Optional[str] = None,
+        auth_value: Optional[str] = None,
+    ) -> bool:
         # SSRF-Schutz & DNS-Rebinding Prävention
         safe_url, original_host = get_safe_request_url_and_host(url)
         if not safe_url or not original_host:
             logger.error(f"PSA Dispatch blockiert: URL {url} ist unsicher (SSRF-Prävention).")
-            return
+            return False
 
         current_status_failed = any(
             f.get('status') == 'FAIL' or f.get('severity') in ['HIGH', 'CRITICAL'] 
@@ -36,7 +61,7 @@ class PSADispatcher:
         elif not current_status_failed and previous_state_failed:
             action = "RESOLVE_TICKET"
         elif not current_status_failed and not previous_state_failed:
-            return
+            return True
 
         psa_payload = {
             "aegis_meta": {
@@ -44,10 +69,14 @@ class PSADispatcher:
                 "action": action,
                 "tenant_id": payload.get("tenant_id"),
                 "hostname": payload.get("hostname"),
-                "module_name": payload.get("module_name")
+                "module_name": payload.get("module_name"),
+                "incident_started_at": payload.get("incident_started_at"),
             },
-            "findings": payload.get("findings", [])
+            "findings": payload.get("findings", []),
+            "company_id": payload.get("company_id"),
+            "site_id": payload.get("site_id"),
         }
+        psa_payload = cls._format_payload(provider, psa_payload)
 
         payload_bytes = json.dumps(psa_payload).encode('utf-8')
         signature = cls._generate_signature(secret_token, payload_bytes)
@@ -59,7 +88,10 @@ class PSADispatcher:
         req.add_header('Host', original_host)
         req.add_header('Content-Type', 'application/json')
         req.add_header('X-Aegis-Signature', signature)
-        req.add_header('X-Aegis-Idempotency-Key', f"{payload.get('hostname')}-{payload.get('module_name')}-{action}")
+        incident_key = payload.get("incident_started_at", "current")
+        req.add_header('X-Aegis-Idempotency-Key', f"{payload.get('tenant_id')}-{payload.get('hostname')}-{payload.get('module_name')}-{incident_key}-{action}")
+        if auth_header and auth_value:
+            req.add_header(auth_header, auth_value)
 
         success = False
         for attempt in range(3):
@@ -87,3 +119,4 @@ class PSADispatcher:
             )
             db.add(dlq_entry)
             db.commit()
+        return success

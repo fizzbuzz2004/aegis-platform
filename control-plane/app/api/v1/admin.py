@@ -1,6 +1,6 @@
 import secrets
 import logging
-from typing import List, Optional
+from typing import List, Optional, Literal
 import pyotp
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -9,9 +9,16 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.modules import DEFAULT_TENANT_MODULES
-from app.core.security import create_access_token, get_current_admin_user, verify_password
+from app.core.security import (
+    assert_tenant_access,
+    create_access_token,
+    get_current_admin_user,
+    get_current_tenant_user,
+    get_password_hash,
+    verify_password,
+)
 from app.models.module_state import ToggleRequest, TokenResponse
-from app.models.orm import ModuleResult, Tenant, TenantModule, User
+from app.models.orm import ModuleResult, Tenant, TenantModule, User, UserRole, WebhookConfig
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -36,6 +43,42 @@ class TenantResponseSchema(BaseModel):
     logo_base64: Optional[str] = None
     brand_color_hex: str = "#0f766e"
     custom_footer: Optional[str] = None
+
+
+class UserCreateSchema(BaseModel):
+    username: str = Field(min_length=1, max_length=50)
+    password: str = Field(min_length=12, max_length=128)
+    role: Literal[UserRole.TECHNICIAN, UserRole.CUSTOMER_ADMIN]
+    tenant_id: Optional[int] = None
+
+
+class UserResponseSchema(BaseModel):
+    id: int
+    username: str
+    role: UserRole
+    tenant_id: Optional[int]
+
+
+class PSAWebhookCreateSchema(BaseModel):
+    url: str = Field(min_length=1, max_length=255)
+    secret_token: str = Field(min_length=16, max_length=255)
+    provider: Literal["generic", "autotask", "connectwise", "ninjaone", "halopsa"] = "generic"
+    auth_header: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+$",
+    )
+    auth_value: Optional[str] = Field(default=None, max_length=512)
+
+
+class PSAWebhookResponseSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tenant_id: int
+    url: str
+    provider: str
+    is_active: bool
 
 
 @router.post("/auth/login", response_model=TokenResponse)
@@ -87,6 +130,74 @@ def admin_login(
     role_value = user.role.value if hasattr(user.role, "value") else str(user.role)
     access_token = create_access_token(data={"sub": user.username, "role": role_value})
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/admin/users", response_model=UserResponseSchema, status_code=status.HTTP_201_CREATED)
+def create_user(
+    payload: UserCreateSchema,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    if db.query(User).filter(User.username == payload.username).first():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Benutzername bereits vergeben")
+
+    if payload.role == UserRole.CUSTOMER_ADMIN:
+        if payload.tenant_id is None or not db.query(Tenant).filter(Tenant.id == payload.tenant_id).first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Gültiger Mandant erforderlich")
+    elif payload.tenant_id is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Techniker dürfen keinem Mandanten zugeordnet werden")
+
+    user = User(
+        username=payload.username,
+        hashed_password=get_password_hash(payload.password),
+        role=payload.role,
+        tenant_id=payload.tenant_id,
+        is_active=True,
+        must_change_password=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.post("/admin/tenants/{tenant_id}/psa-webhooks", response_model=PSAWebhookResponseSchema, status_code=status.HTTP_201_CREATED)
+def create_psa_webhook(
+    tenant_id: int,
+    payload: PSAWebhookCreateSchema,
+    current_user: User = Depends(get_current_tenant_user),
+    db: Session = Depends(get_db),
+):
+    assert_tenant_access(current_user, tenant_id)
+    if not db.query(Tenant).filter(Tenant.id == tenant_id).first():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mandant nicht gefunden")
+    if bool(payload.auth_header) != bool(payload.auth_value):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Auth-Header und Auth-Wert müssen gemeinsam gesetzt werden")
+    if payload.auth_header and any(char in payload.auth_header + payload.auth_value for char in "\r\n"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ungültige Auth-Konfiguration")
+
+    webhook = WebhookConfig(
+        tenant_id=tenant_id,
+        url=payload.url,
+        secret_token=payload.secret_token,
+        provider=payload.provider,
+        auth_header=payload.auth_header,
+        auth_value=payload.auth_value,
+    )
+    db.add(webhook)
+    db.commit()
+    db.refresh(webhook)
+    return webhook
+
+
+@router.get("/admin/tenants/{tenant_id}/psa-webhooks", response_model=List[PSAWebhookResponseSchema])
+def list_psa_webhooks(
+    tenant_id: int,
+    current_user: User = Depends(get_current_tenant_user),
+    db: Session = Depends(get_db),
+):
+    assert_tenant_access(current_user, tenant_id)
+    return db.query(WebhookConfig).filter(WebhookConfig.tenant_id == tenant_id).all()
 
 
 @router.post("/admin/tenants", response_model=TenantResponseSchema)

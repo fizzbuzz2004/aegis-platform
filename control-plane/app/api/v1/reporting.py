@@ -18,7 +18,7 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.security import get_current_admin_user
+from app.core.security import assert_tenant_access, get_current_tenant_user
 from app.models.orm import User, Tenant, ModuleResult
 
 router = APIRouter()
@@ -66,12 +66,13 @@ def _month_bounds(now: datetime) -> tuple[datetime, datetime]:
 @router.get("/reports/tenant/{tenant_id}/monthly-pdf")
 def generate_monthly_compliance_report(
     tenant_id: int,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_tenant_user),
     db: Session = Depends(get_db),
 ):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mandant nicht gefunden")
+    assert_tenant_access(current_user, tenant.id)
 
     now = datetime.now(timezone.utc)
     month_start, month_end = _month_bounds(now)

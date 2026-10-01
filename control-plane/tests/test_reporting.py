@@ -11,7 +11,7 @@ from app.api.v1.reporting import generate_monthly_compliance_report
 from app.core.database import Base
 from app.main import app
 from app.models.module_state import ToggleRequest
-from app.models.orm import ModuleResult, Tenant, TenantModule
+from app.models.orm import ModuleResult, Tenant, TenantModule, User, UserRole
 
 
 def make_test_session():
@@ -52,7 +52,8 @@ def test_monthly_pdf_generates_with_invalid_logo_fallback():
         ))
         db.commit()
 
-        response = generate_monthly_compliance_report(tenant.id, object(), db)
+        technician = User(username="report-tech", hashed_password="unused", role=UserRole.TECHNICIAN)
+        response = generate_monthly_compliance_report(tenant.id, technician, db)
 
         async def response_bytes():
             return b"".join([chunk async for chunk in response.body_iterator])

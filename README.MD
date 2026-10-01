@@ -127,9 +127,18 @@ func init() {
 }
 ```
 
-## Tenant-Branding-Migration
+## Control-Plane-Migration
 
-Für bestehende Datenbanken vor dem aktualisierten Control-Plane-Start einmal `control-plane/migrations/001_tenant_branding.sql` gegen die Datenbank ausführen. Neue Datenbanken erhalten die Felder automatisch über SQLAlchemy `create_all`.
+Für bestehende Datenbanken vor dem aktualisierten Control-Plane-Start die SQL-Migrationen in Reihenfolge ausführen:
+
+1. `control-plane/migrations/001_tenant_branding.sql`
+2. `control-plane/migrations/002_msp_psa_rbac.sql`
+
+Neue Datenbanken erhalten das Schema automatisch über SQLAlchemy `create_all`.
+
+MSP-Techniker (`TECHNICIAN`, einschließlich bestehender `ADMIN`-Konten) haben globalen Zugriff. Customer-Admins (`CUSTOMER_ADMIN`) müssen einem Mandanten zugeordnet sein; Dashboard- und PDF-Abfragen sind auf diesen Mandanten begrenzt. Globale Techniker können Customer-Admin-Konten über `POST /api/v1/admin/users` anlegen.
+
+PSA-Ziele werden mandantenbezogen unter `POST /api/v1/admin/tenants/{tenant_id}/psa-webhooks` konfiguriert. Unterstützte Payload-Profile sind `generic`, `autotask`, `connectwise`, `ninjaone` und `halopsa`. Die Zugangsdaten werden nicht über die Auflistungs-API zurückgegeben. Ein Backup-Probe-Ticket wird bei mindestens 48 Stunden anhaltendem Fehler oder ausbleibendem Ergebnis automatisch erstellt; der Dienst prüft zusätzlich alle 15 Minuten auf veraltete Ergebnisse.
 
 🔒 Sicherheit & Hinweise
 Das secrets/-Verzeichnis sowie .env-Dateien werden nicht im Versionskontrollsystem erfasst (siehe .gitignore).

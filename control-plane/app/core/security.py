@@ -42,6 +42,11 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     user = db.query(User).filter(User.username == username, User.is_active == True).first()
     if user is None:
         raise credentials_exception
+    if user.role == UserRole.CUSTOMER_ADMIN and user.tenant_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Customer-Admin-Konto ist keinem Mandanten zugeordnet.",
+        )
     return user
 
 def require_role(required_roles: List[UserRole]):
@@ -55,6 +60,23 @@ def require_role(required_roles: List[UserRole]):
         return current_user
     return role_checker
 
-# Bequeme Standard-Dependencies
-get_current_admin_user = require_role([UserRole.ADMIN])
-get_any_active_user = require_role([UserRole.ADMIN, UserRole.JUNIOR])
+def assert_tenant_access(user: User, tenant_id: int) -> None:
+    if user.role == UserRole.CUSTOMER_ADMIN and user.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kein Zugriff auf diesen Mandanten.",
+        )
+
+
+get_current_admin_user = require_role([UserRole.ADMIN, UserRole.TECHNICIAN])
+get_current_tenant_user = require_role([
+    UserRole.ADMIN,
+    UserRole.TECHNICIAN,
+    UserRole.CUSTOMER_ADMIN,
+])
+get_any_active_user = require_role([
+    UserRole.ADMIN,
+    UserRole.TECHNICIAN,
+    UserRole.JUNIOR,
+    UserRole.CUSTOMER_ADMIN,
+])
