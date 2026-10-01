@@ -3,13 +3,18 @@
 package probes
 
 import (
+	"context"
 	"os/exec"
 )
 
-func RunBackupProbe(ctx ProbeContext) []Finding {
+func init() {
+	Register("backup_probe", RunBackupProbe)
+}
+
+func RunBackupProbe(ctx context.Context, _ ProbeContext) []Finding {
 	var findings []Finding
 
-	cmd := exec.Command("systemctl", "is-active", "backup.service")
+	cmd := exec.CommandContext(ctx, "systemctl", "is-active", "backup.service")
 	if err := cmd.Run(); err == nil {
 		findings = append(findings, Finding{
 			Status:     "PASS",

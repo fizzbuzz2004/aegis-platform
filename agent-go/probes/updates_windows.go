@@ -3,10 +3,16 @@
 package probes
 
 import (
+	"context"
+
 	"golang.org/x/sys/windows/registry"
 )
 
-func RunUpdatesProbe(ctx ProbeContext) []Finding {
+func init() {
+	Register("updates_probe", RunUpdatesProbe)
+}
+
+func RunUpdatesProbe(_ context.Context, _ ProbeContext) []Finding {
 	var findings []Finding
 	rebootPending := false
 

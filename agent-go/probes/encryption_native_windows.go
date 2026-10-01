@@ -15,6 +15,10 @@ type Win32_EncryptableVolume struct {
 	ProtectionStatus uint32
 }
 
+func init() {
+	Register("encryption_probe", RunEncryptionProbe)
+}
+
 func RunEncryptionProbe(ctx context.Context, pCtx ProbeContext) (findings []Finding) {
 	defer func() {
 		if r := recover(); r != nil {

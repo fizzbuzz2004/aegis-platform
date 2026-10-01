@@ -3,12 +3,17 @@
 package probes
 
 import (
+	"context"
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
 
-func RunRegistryAudit(ctx ProbeContext) []Finding {
+func init() {
+	Register("registry_probe", RunRegistryAudit)
+}
+
+func RunRegistryAudit(_ context.Context, _ ProbeContext) []Finding {
 	var findings []Finding
 
 	key, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, registry.READ)

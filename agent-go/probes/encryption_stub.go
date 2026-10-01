@@ -4,6 +4,10 @@ package probes
 
 import "context"
 
+func init() {
+	Register("encryption_probe", RunEncryptionProbe)
+}
+
 func RunEncryptionProbe(ctx context.Context, pCtx ProbeContext) []Finding {
 	return []Finding{
 		{

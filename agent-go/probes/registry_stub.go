@@ -2,7 +2,13 @@
 
 package probes
 
-func RunRegistryAudit(ctx ProbeContext) []Finding {
+import "context"
+
+func init() {
+	Register("registry_probe", RunRegistryAudit)
+}
+
+func RunRegistryAudit(_ context.Context, _ ProbeContext) []Finding {
 	return []Finding{
 		{
 			Status:     "INFO",

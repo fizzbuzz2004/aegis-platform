@@ -5,8 +5,22 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.v1 import admin as admin_api
 from app.core.database import Base, get_db
+from app.core.modules import DEFAULT_TENANT_MODULES
 from app.main import app
 from app.models.orm import Tenant, TenantModule, User, UserRole
+
+
+def test_tenant_defaults_match_registered_agent_module_names():
+    assert set(DEFAULT_TENANT_MODULES) == {
+        "cis_hardening",
+        "security_probe",
+        "backup_probe",
+        "storage_probe",
+        "encryption_probe",
+        "updates_probe",
+        "registry_probe",
+        "firewall_status",
+    }
 
 
 def test_agent_registration_results_reach_authenticated_dashboard(monkeypatch):

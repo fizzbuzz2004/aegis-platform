@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
+from app.core.modules import DEFAULT_TENANT_MODULES
 from app.core.security import get_password_hash
 from app.core.limiter import limiter  # Zentraler Import zur Vermeidung zirkulärer Imports
 from app.models.orm import User, Tenant, TenantModule
@@ -36,15 +37,21 @@ def seed_initial_data():
             )
             db.add(admin_user)
         
-        if not db.query(Tenant).filter(Tenant.id == 1).first():
+        pilot_tenant = db.query(Tenant).filter(Tenant.id == 1).first()
+        if not pilot_tenant:
             pilot_tenant = Tenant(id=1, name="Pilot-Systemhaus-Meier", enrollment_code="enroll_pilot_2026")
             db.add(pilot_tenant)
-            db.commit()
+            db.flush()
 
-            mod1 = TenantModule(tenant_id=1, module_name="cis_hardening", is_enabled=True)
-            mod2 = TenantModule(tenant_id=1, module_name="backup_probe", is_enabled=True)
-            mod3 = TenantModule(tenant_id=1, module_name="registry_audit", is_enabled=True)
-            db.add_all([mod1, mod2, mod3])
+        existing_modules = {
+            module.module_name
+            for module in db.query(TenantModule).filter(TenantModule.tenant_id == pilot_tenant.id).all()
+        }
+        db.add_all([
+            TenantModule(tenant_id=pilot_tenant.id, module_name=module_name, is_enabled=True)
+            for module_name in DEFAULT_TENANT_MODULES
+            if module_name not in existing_modules
+        ])
 
         db.commit()
     finally:

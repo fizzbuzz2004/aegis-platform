@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.modules import DEFAULT_TENANT_MODULES
 from app.core.security import create_access_token, get_current_admin_user, verify_password
 from app.models.module_state import ToggleRequest, TokenResponse
 from app.models.orm import ModuleResult, Tenant, TenantModule, User
@@ -94,8 +95,7 @@ def create_tenant(
     db.refresh(tenant)
 
     # Standardmodule aktivieren
-    default_modules = ["cis_hardening", "backup_probe", "security_probe", "storage_probe"]
-    for mod in default_modules:
+    for mod in DEFAULT_TENANT_MODULES:
         db.add(TenantModule(tenant_id=tenant.id, module_name=mod, is_enabled=True))
     db.commit()
 
@@ -122,7 +122,7 @@ def batch_onboard_tenants(
         t = Tenant(name=name, enrollment_code=code)
         db.add(t)
         db.flush()
-        for mod in ["cis_hardening", "security_probe"]:
+        for mod in DEFAULT_TENANT_MODULES:
             db.add(TenantModule(tenant_id=t.id, module_name=mod, is_enabled=True))
         created.append({"name": name, "enrollment_code": code})
     db.commit()

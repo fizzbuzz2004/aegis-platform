@@ -3,13 +3,18 @@
 package probes
 
 import (
+	"context"
 	"os"
 	"time"
 
 	"golang.org/x/sys/windows/registry"
 )
 
-func RunBackupProbe(ctx ProbeContext) []Finding {
+func init() {
+	Register("backup_probe", RunBackupProbe)
+}
+
+func RunBackupProbe(_ context.Context, _ ProbeContext) []Finding {
 	var findings []Finding
 
 	// --- 1. Veeam Backup Service Check ---

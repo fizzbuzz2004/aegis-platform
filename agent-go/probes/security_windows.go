@@ -8,6 +8,10 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+func init() {
+	Register("security_probe", RunEndpointSecurityProbe)
+}
+
 func RunEndpointSecurityProbe(_ context.Context, ctx ProbeContext) []Finding {
 	var findings []Finding
 

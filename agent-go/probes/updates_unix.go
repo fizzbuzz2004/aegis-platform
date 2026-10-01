@@ -3,10 +3,15 @@
 package probes
 
 import (
+	"context"
 	"os"
 )
 
-func RunUpdatesProbe(ctx ProbeContext) []Finding {
+func init() {
+	Register("updates_probe", RunUpdatesProbe)
+}
+
+func RunUpdatesProbe(_ context.Context, _ ProbeContext) []Finding {
 	var findings []Finding
 
 	if _, err := os.Stat("/var/run/reboot-required"); err == nil {

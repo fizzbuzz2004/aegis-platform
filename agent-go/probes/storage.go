@@ -1,10 +1,15 @@
 package probes
 
 import (
+	"context"
 	"fmt"
 )
 
-func RunStorageProbe(ctx ProbeContext) []Finding {
+func init() {
+	Register("storage_probe", RunStorageProbe)
+}
+
+func RunStorageProbe(_ context.Context, ctx ProbeContext) []Finding {
 	var findings []Finding
 
 	if ctx.OSName == "windows" {
