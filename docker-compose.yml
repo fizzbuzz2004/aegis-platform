@@ -1,14 +1,15 @@
+name: ${COMPOSE_PROJECT_NAME:-aegis-platform}
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: aegis-postgres
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aegis_admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis_secure_password_2026}
       POSTGRES_DB: ${POSTGRES_DB:-aegis_db}
     ports:
-      - "127.0.0.1:5433:5432"
+      - "${POSTGRES_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PUBLISHED_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,10 +22,9 @@ services:
     build:
       context: ./control-plane
       dockerfile: Dockerfile
-    container_name: aegis-control-plane
     restart: always
     ports:
-      - "8000:8000"
+      - "${CONTROL_PLANE_BIND_ADDRESS:-0.0.0.0}:${CONTROL_PLANE_PUBLISHED_PORT:-8000}:8000"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-aegis_admin}:${POSTGRES_PASSWORD:-aegis_secure_password_2026}@postgres:5432/${POSTGRES_DB:-aegis_db}
       SECRET_KEY: ${SECRET_KEY:-aegis_prod_jwt_secret_key_change_in_env_2026}
