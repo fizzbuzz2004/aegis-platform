@@ -13,7 +13,8 @@ var (
 	probeMap   = make(map[string]ProbeRunner)
 )
 
-// Register registriert eine Probe-Funktion im Speicher
+// Register registriert eine Probe-Funktion im Speicher. Neue Probe-Dateien
+// melden sich üblicherweise in init() mit Register("modul_name", runner) an.
 func Register(name string, runner ProbeRunner) {
 	probeMapMu.Lock()
 	defer probeMapMu.Unlock()

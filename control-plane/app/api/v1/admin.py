@@ -3,7 +3,7 @@ from typing import List, Optional
 import pyotp
 from fastapi import APIRouter, Depends, Form, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -18,13 +18,21 @@ class TenantCreateSchema(BaseModel):
     name: str
     psa_company_id: Optional[str] = None
     psa_site_id: Optional[str] = None
+    logo_base64: Optional[str] = Field(default=None, max_length=2_800_000)
+    brand_color_hex: str = Field(default="#0f766e", pattern=r"^#[0-9A-Fa-f]{6}$")
+    custom_footer: Optional[str] = Field(default=None, max_length=500)
 
 
 class TenantResponseSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     enrollment_code: str
     psa_company_id: Optional[str] = None
+    logo_base64: Optional[str] = None
+    brand_color_hex: str = "#0f766e"
+    custom_footer: Optional[str] = None
 
 
 @router.post("/auth/login", response_model=TokenResponse)
@@ -77,6 +85,9 @@ def create_tenant(
         enrollment_code=enrollment_code,
         psa_company_id=payload.psa_company_id,
         psa_site_id=payload.psa_site_id,
+        logo_base64=payload.logo_base64,
+        brand_color_hex=payload.brand_color_hex,
+        custom_footer=payload.custom_footer,
     )
     db.add(tenant)
     db.commit()

@@ -54,6 +54,54 @@ cd agent-go && go test ./...
 # Control-Plane Tests
 cd control-plane && pytest
 
+## VirtualBox-Testnetz und Debugging
+
+Verwende die erreichbare Ubuntu-Control-Plane-IP statt `127.0.0.1`, z. B. `http://192.168.56.10:8000`. Im Host-only- oder Bridged-Netz müssen TCP-Port 8000 sowie die Agenten-VMs gegenseitig erreichbar sein.
+
+Unter Windows PowerShell können beide x64-Agenten gebaut werden:
+
+```powershell
+.\scripts\build_virtualbox.ps1
+```
+
+Unter Linux/macOS:
+
+```sh
+cd agent-go
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o ../dist/aegis-agent-linux .
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o ../dist/aegis-agent.exe .
+```
+
+Agent zuerst einmalig registrieren; danach wird `host_token` in `/etc/aegis/config.json` (Linux) bzw. `%ProgramData%\Aegis\config.json` (Windows) gespeichert:
+
+```sh
+sudo ./aegis-agent-linux -server http://192.168.56.10:8000 -register <enroll_code> -debug -once
+sudo ./aegis-agent-linux -server http://192.168.56.10:8000 -debug -once
+```
+
+```powershell
+.\aegis-agent.exe -server http://192.168.56.10:8000 -register <enroll_code> -debug -once
+.\aegis-agent.exe -server http://192.168.56.10:8000 -debug -once
+```
+
+`-debug` protokolliert Endpunkte, HTTP-Status und Netzwerkfehler, niemals den Tokenwert. Unter Linux benötigt das Anlegen der Konfiguration Schreibrechte für `/etc/aegis`; Windows muss mit Rechten zum Schreiben in ProgramData laufen.
+
+## Neue Agent-Probe
+
+Lege eine Go-Datei in `agent-go/probes/` an und registriere einen `ProbeRunner` in `init()`. Beispiel: Die Probe `firewall_status` ist in `probes/firewall.go` umgesetzt und erscheint nach dem Build als Modulname. Für einen neuen Modulnamen wird kein Datenbankschema angepasst: `POST /api/v1/admin/toggle` legt einen unbekannten `TenantModule.module_name` als String an; der Agent führt ihn aus, wenn seine Probe mit exakt diesem Namen registriert ist.
+
+```go
+func init() {
+	Register("mein_modul", func(ctx context.Context, pCtx ProbeContext) []Finding {
+		return []Finding{{Status: "PASS", Code: "CHECK_OK", Severity: "INFO", Message: "Prüfung erfolgreich"}}
+	})
+}
+```
+
+## Tenant-Branding-Migration
+
+Für bestehende Datenbanken vor dem aktualisierten Control-Plane-Start einmal `control-plane/migrations/001_tenant_branding.sql` gegen die Datenbank ausführen. Neue Datenbanken erhalten die Felder automatisch über SQLAlchemy `create_all`.
+
 🔒 Sicherheit & Hinweise
 Das secrets/-Verzeichnis sowie .env-Dateien werden nicht im Versionskontrollsystem erfasst (siehe .gitignore).
 

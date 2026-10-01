@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"runtime"
@@ -17,18 +18,72 @@ import (
 func main() {
 	onceFlag := flag.Bool("once", false, "Einmalige Ausführung")
 	verifyFlag := flag.Bool("verify", false, "WORM Log-Integrität verifizieren")
-	serverURL := flag.String("server", "http://127.0.0.1:8000", "Control Plane Server URL")
-	hostToken := flag.String("token", os.Getenv("AEGIS_HOST_TOKEN"), "Host Authentifizierungstoken")
+	serverURL := flag.String("server", "", "Control Plane Server URL")
+	hostToken := flag.String("token", "", "Host Authentifizierungstoken")
 	enrollCode := flag.String("register", "", "Einmaliger Registrierungscode")
+	debugFlag := flag.Bool("debug", false, "Detailliertes Network- und Auth-Logging")
 	flag.Parse()
 
+	config, configErr := core.LoadAgentConfig()
+	if configErr != nil {
+		log.Printf("[CONFIG WARN] %v", configErr)
+	}
+	serverURLValue := config.ServerURL
+	if serverURLValue == "" {
+		serverURLValue = "http://127.0.0.1:8000"
+	}
+	if envServerURL := os.Getenv("AEGIS_SERVER_URL"); envServerURL != "" {
+		serverURLValue = envServerURL
+	}
+	tokenValue := config.HostToken
+	if envToken := os.Getenv("AEGIS_HOST_TOKEN"); envToken != "" {
+		tokenValue = envToken
+	}
+	flag.Visit(func(value *flag.Flag) {
+		switch value.Name {
+		case "token":
+			tokenValue = *hostToken
+		case "server":
+			serverURLValue = *serverURL
+		}
+	})
+	if *debugFlag {
+		log.Printf("[DEBUG] Agent-Konfiguration: %s; Control Plane: %s; Host-Token vorhanden: %t", core.AgentConfigPath(), serverURLValue, tokenValue != "")
+	}
+
 	// Initialisierung: Host-Token als HMAC-Secret für den WORM Logger sichern
-	hostTokenValue := *hostToken
+	hostTokenValue := tokenValue
 	if hostTokenValue == "" {
 		hostTokenValue = "fallback_offline_secret_key"
 	}
+	wormSecret := config.WormSecret
+	if wormSecret == "" {
+		if tokenValue != "" {
+			wormSecret = tokenValue
+		} else {
+			_, statErr := os.Stat(core.DefaultWormLogPath())
+			if statErr == nil {
+				wormSecret = hostTokenValue
+			} else if !os.IsNotExist(statErr) {
+				log.Printf("[FATAL] WORM-Log kann nicht geprüft werden: %v", statErr)
+				os.Exit(1)
+			} else {
+				generatedSecret, secretErr := core.NewWormSecret()
+				if secretErr != nil {
+					log.Printf("[FATAL] %v", secretErr)
+					os.Exit(1)
+				}
+				wormSecret = generatedSecret
+			}
+		}
+		config.WormSecret = wormSecret
+		if err := core.SaveAgentConfig(config); err != nil {
+			log.Printf("[FATAL] WORM-Schlüssel kann nicht dauerhaft unter %s gespeichert werden: %v", core.AgentConfigPath(), err)
+			os.Exit(1)
+		}
+	}
 
-	worm, err := core.NewWormLogger("", hostTokenValue)
+	worm, err := core.NewWormLogger("", wormSecret)
 	if err != nil {
 		fmt.Printf("[FATAL] WORM Logger Init fehlgeschlagen: %v\n", err)
 		os.Exit(1)
@@ -47,10 +102,14 @@ func main() {
 	hostname, _ := os.Hostname()
 	osInfo := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
 
-	syncClient, err := core.NewSyncClient(*serverURL, *hostToken, hostname, osInfo)
+	syncClient, err := core.NewSyncClient(serverURLValue, tokenValue, hostname, osInfo)
 	if err != nil {
 		fmt.Printf("[FATAL] Sync Client Fehler: %v\n", err)
 		os.Exit(1)
+	}
+	syncClient.Debug = *debugFlag
+	if tokenValue == "" && *enrollCode == "" {
+		log.Printf("[AUTH WARN] Kein Host-Token konfiguriert. Agent zuerst mit -register <enroll_code> registrieren.")
 	}
 
 	if *enrollCode != "" {
@@ -59,10 +118,11 @@ func main() {
 			fmt.Printf("[FATAL] Registrierung fehlgeschlagen: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("✅ Registriert. Token: %s\n", newToken)
-		if *onceFlag {
-			os.Exit(0)
+		if err := core.SaveAgentConfig(core.AgentConfig{HostToken: newToken, ServerURL: serverURLValue, WormSecret: wormSecret}); err != nil {
+			fmt.Printf("[FATAL] Registrierung erfolgreich, Token konnte aber nicht unter %s gespeichert werden: %v\n", core.AgentConfigPath(), err)
+			os.Exit(1)
 		}
+		fmt.Printf("✅ Registriert. Token dauerhaft unter %s gespeichert.\n", core.AgentConfigPath())
 	}
 
 	pCtx := probes.ProbeContext{OSName: runtime.GOOS, Hostname: hostname}
@@ -77,6 +137,10 @@ func main() {
 				fmt.Printf("[TELEMETRY] Puffer-Flush: %d erfolgreich, %d verbleibend\n", succeeded, failed)
 			}
 			return
+		}
+		succeeded, failed := syncClient.FlushOfflineQueue(ctx)
+		if succeeded > 0 || failed > 0 {
+			fmt.Printf("[TELEMETRY] Puffer-Flush: %d erfolgreich, %d verbleibend\n", succeeded, failed)
 		}
 
 		// --- ZENTRALE WORM-INTEGRITÄTSPRÜFUNG PRO ZYKLUS ---

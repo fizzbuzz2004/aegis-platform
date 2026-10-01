@@ -1,0 +1,3 @@
+ALTER TABLE tenants ADD COLUMN logo_base64 TEXT;
+ALTER TABLE tenants ADD COLUMN brand_color_hex VARCHAR(7) NOT NULL DEFAULT '#0f766e';
+ALTER TABLE tenants ADD COLUMN custom_footer VARCHAR(500);

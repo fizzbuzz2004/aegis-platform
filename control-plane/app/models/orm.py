@@ -33,6 +33,9 @@ class Tenant(Base):
 
     name = Column(String(100), nullable=False)
     enrollment_code = Column(String(128), unique=True, index=True, nullable=False)
+    logo_base64 = Column(Text, nullable=True)
+    brand_color_hex = Column(String(7), nullable=False, default="#0f766e")
+    custom_footer = Column(String(500), nullable=True)
     psa_company_id = Column(String(100), nullable=True)
     psa_site_id = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

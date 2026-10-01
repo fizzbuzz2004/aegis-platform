@@ -2,11 +2,13 @@ package core
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +23,7 @@ type WormLogger struct {
 func NewWormLogger(customPath string, secretToken string) (*WormLogger, error) {
 	path := customPath
 	if path == "" {
-		if os.Getenv("OS") == "Windows_NT" {
-			path = `C:\ProgramData\Aegis\aegis_chain.dat`
-		} else {
-			path = "/var/log/aegis/aegis_chain.dat"
-		}
+		path = DefaultWormLogPath()
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
@@ -36,6 +34,25 @@ func NewWormLogger(customPath string, secretToken string) (*WormLogger, error) {
 		filePath:  path,
 		secretKey: []byte(secretToken),
 	}, nil
+}
+
+func DefaultWormLogPath() string {
+	if runtime.GOOS == "windows" {
+		programData := os.Getenv("ProgramData")
+		if programData == "" {
+			programData = `C:\ProgramData`
+		}
+		return filepath.Join(programData, "Aegis", "aegis_chain.dat")
+	}
+	return "/var/log/aegis/aegis_chain.dat"
+}
+
+func NewWormSecret() (string, error) {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return "", fmt.Errorf("WORM-Schlüssel kann nicht erzeugt werden: %w", err)
+	}
+	return hex.EncodeToString(secret), nil
 }
 
 func (w *WormLogger) getLastHash() string {

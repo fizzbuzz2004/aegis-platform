@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/aegis-platform/agent-go/probes"
@@ -24,6 +26,7 @@ type SyncClient struct {
 	OSInfo     string
 	QueueDB    string
 	HTTPClient *http.Client
+	Debug      bool
 }
 
 type ResultPayload struct {
@@ -33,10 +36,7 @@ type ResultPayload struct {
 }
 
 func NewSyncClient(serverURL, hostToken, hostname, osInfo string) (*SyncClient, error) {
-	queuePath := "/var/log/aegis/queue.db"
-	if os.Getenv("OS") == "Windows_NT" {
-		queuePath = `C:\ProgramData\Aegis\queue.db`
-	}
+	queuePath := DefaultQueuePath()
 
 	if err := os.MkdirAll(filepath.Dir(queuePath), 0700); err != nil {
 		return nil, fmt.Errorf("Konnte Verzeichnis nicht erstellen: %w", err)
@@ -62,6 +62,17 @@ func NewSyncClient(serverURL, hostToken, hostname, osInfo string) (*SyncClient, 
 		return nil, err
 	}
 	return client, nil
+}
+
+func DefaultQueuePath() string {
+	if runtime.GOOS == "windows" {
+		programData := os.Getenv("ProgramData")
+		if programData == "" {
+			programData = `C:\ProgramData`
+		}
+		return filepath.Join(programData, "Aegis", "queue.db")
+	}
+	return "/var/log/aegis/queue.db"
 }
 
 func (s *SyncClient) initQueueDB() error {
@@ -106,11 +117,19 @@ func (s *SyncClient) PushResults(ctx context.Context, moduleName string, finding
 
 		resp, err := s.HTTPClient.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
+			s.logResponse("POST /api/v1/sync/results", resp.StatusCode)
 			resp.Body.Close()
 			return nil
 		}
 		if resp != nil {
+			s.logResponse("POST /api/v1/sync/results", resp.StatusCode)
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				resp.Body.Close()
+				return authFailure(resp.StatusCode)
+			}
 			resp.Body.Close()
+		} else if err != nil && s.Debug {
+			log.Printf("[DEBUG] POST /api/v1/sync/results network error: %v", err)
 		}
 
 		select {
@@ -136,20 +155,35 @@ func (s *SyncClient) FlushOfflineQueue(ctx context.Context) (int, int) {
 	if err != nil {
 		return 0, 0
 	}
-	defer rows.Close()
-
-	succeeded := 0
 	failed := 0
+	type queuedFinding struct {
+		id       int
+		module   string
+		jsonBody string
+	}
+	queued := make([]queuedFinding, 0, 50)
 
 	for rows.Next() {
-		var id int
-		var modName, jsonStr string
-		if err := rows.Scan(&id, &modName, &jsonStr); err != nil {
+		var item queuedFinding
+		if err := rows.Scan(&item.id, &item.module, &item.jsonBody); err != nil {
 			failed++
 			continue
 		}
+		queued = append(queued, item)
+	}
+	if err := rows.Err(); err != nil {
+		fmt.Printf("[QUEUE WARN] Fehler während der DB-Iteration: %v\n", err)
+		failed++
+	}
+	if err := rows.Close(); err != nil {
+		fmt.Printf("[QUEUE WARN] Queue-Ergebnismenge konnte nicht geschlossen werden: %v\n", err)
+		return 0, failed + len(queued)
+	}
 
-		req, err := http.NewRequestWithContext(ctx, "POST", s.ServerURL+"/api/v1/sync/results", bytes.NewBufferString(jsonStr))
+	succeeded := 0
+	for _, item := range queued {
+
+		req, err := http.NewRequestWithContext(ctx, "POST", s.ServerURL+"/api/v1/sync/results", bytes.NewBufferString(item.jsonBody))
 		if err != nil {
 			failed++
 			continue
@@ -159,20 +193,28 @@ func (s *SyncClient) FlushOfflineQueue(ctx context.Context) (int, int) {
 
 		resp, err := s.HTTPClient.Do(req)
 		if err == nil && resp.StatusCode == http.StatusOK {
+			s.logResponse("POST /api/v1/sync/results (offline queue)", resp.StatusCode)
 			resp.Body.Close()
-			_, _ = db.ExecContext(ctx, "DELETE FROM offline_findings WHERE id = ?", id)
+			if _, err := db.ExecContext(ctx, "DELETE FROM offline_findings WHERE id = ?", item.id); err != nil {
+				fmt.Printf("[QUEUE WARN] Übertragenes Ergebnis %d konnte nicht aus der Queue entfernt werden: %v\n", item.id, err)
+				failed++
+				continue
+			}
 			succeeded++
 		} else {
 			if resp != nil {
+				s.logResponse("POST /api/v1/sync/results (offline queue)", resp.StatusCode)
+				if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+					resp.Body.Close()
+					failed++
+					break
+				}
 				resp.Body.Close()
+			} else if err != nil && s.Debug {
+				log.Printf("[DEBUG] POST /api/v1/sync/results (offline queue) network error: %v", err)
 			}
 			failed++
 		}
-	}
-
-	// Behebt die Linter-Warnung (sqlrowserr)
-	if err := rows.Err(); err != nil {
-		fmt.Printf("[QUEUE WARN] Fehler während der DB-Iteration: %v\n", err)
 	}
 
 	return succeeded, failed
@@ -224,12 +266,16 @@ func (s *SyncClient) RegisterDevice(ctx context.Context, enrollCode string) (str
 
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
+		if s.Debug {
+			log.Printf("[DEBUG] POST /api/v1/agents/register network error: %v", err)
+		}
 		return "", err
 	}
 	defer resp.Body.Close()
 
+	s.logResponse("POST /api/v1/agents/register", resp.StatusCode)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("Registrierung fehlgeschlagen: HTTP %d", resp.StatusCode)
 	}
 
 	var res struct {
@@ -239,6 +285,9 @@ func (s *SyncClient) RegisterDevice(ctx context.Context, enrollCode string) (str
 		return "", err
 	}
 	s.HostToken = res.HostToken
+	if s.HostToken == "" {
+		return "", fmt.Errorf("Registrierung lieferte kein Host-Token")
+	}
 	return res.HostToken, nil
 }
 
@@ -251,15 +300,35 @@ func (s *SyncClient) FetchDesiredState(ctx context.Context) (map[string]bool, er
 
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
+		if s.Debug {
+			log.Printf("[DEBUG] GET /api/v1/agents/desired-state network error: %v", err)
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
+	s.logResponse("GET /api/v1/agents/desired-state", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return nil, authFailure(resp.StatusCode)
+		}
+		return nil, fmt.Errorf("Soll-Zustand konnte nicht geladen werden: HTTP %d", resp.StatusCode)
 	}
 
 	state := make(map[string]bool)
 	_ = json.NewDecoder(resp.Body).Decode(&state)
 	return state, nil
+}
+
+func (s *SyncClient) logResponse(endpoint string, statusCode int) {
+	if s.Debug {
+		log.Printf("[DEBUG] %s -> HTTP %d (Authorization: Bearer [redacted])", endpoint, statusCode)
+	}
+	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		log.Printf("[AUTH ERROR] %s wurde mit HTTP %d abgelehnt. Host-Token ist ungültig oder revokiert; Agent erneut registrieren.", endpoint, statusCode)
+	}
+}
+
+func authFailure(statusCode int) error {
+	return fmt.Errorf("Host-Token abgelehnt (HTTP %d); Token möglicherweise revokiert, Agent mit -register erneut registrieren", statusCode)
 }
