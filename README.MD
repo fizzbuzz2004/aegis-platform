@@ -19,17 +19,16 @@ git clone https://github.com/lschwe04/aegis-platform.git
 cd aegis-platform
 cp .env.example .env
 
-2. Secrets strukturieren
-Erstelle das lokale secrets/-Verzeichnis für sensitive Laufzeitdaten:
+2. Lokalen VirtualBox-Teststack starten
 
-mkdir -p secrets
-echo "postgresql://aegis:password@db:5432/aegis_db" > secrets/db_url.txt
-echo "super-secret-key-change-me" > secrets/secret_key.txt
-echo "admin-secure-password" > secrets/admin_pw.txt
+Setze in `.env` mindestens ein eigenes `SECRET_KEY` und ein `ADMIN_INITIAL_PASSWORD` mit mindestens 12 Zeichen. Danach den mitgelieferten Control-Plane- und Postgres-Stack starten:
 
-3. Stack via Docker Compose starten
+```sh
+docker compose up -d --build
+docker compose ps
+```
 
-docker compose -f docker-compose.prod.yml up -d --build
+Der lokale Stack ist in `docker-compose.yml` definiert. `docker-compose.prod.yml` ist für ein bereits gebautes `aegis-control-plane:latest` Image und eine externe Datenbank gedacht; er enthält keinen Postgres-Service und ist nicht der Quickstart für eine leere VirtualBox-Testumgebung.
 
 🛠 Entwicklung & Workflows
 Agent kompilieren (scripts/build.sh)
@@ -56,7 +55,19 @@ cd control-plane && pytest
 
 ## VirtualBox-Testnetz und Debugging
 
-Verwende die erreichbare Ubuntu-Control-Plane-IP statt `127.0.0.1`, z. B. `http://192.168.56.10:8000`. Im Host-only- oder Bridged-Netz müssen TCP-Port 8000 sowie die Agenten-VMs gegenseitig erreichbar sein.
+Die derzeit registrierten VirtualBox-VMs verwenden Bridged Networking. Ermittle die IPv4-Adresse der Ubuntu-Control-VM in der VM mit `ip -4 -o addr show scope global` und verwende die Adresse des bridged Interfaces, nicht `127.0.0.1` oder ungeprüft `192.168.56.10`. Die Ubuntu- und Windows-Agenten müssen TCP-Port 8000 auf dieser Adresse erreichen können; sie müssen einander nicht erreichen.
+
+Von beiden Agent-VMs vor der Registrierung testen:
+
+```sh
+curl -f http://<CONTROL_VM_IP>:8000/docs
+```
+
+Falls UFW auf der Control-VM aktiv ist, Port 8000 dort freigeben:
+
+```sh
+sudo ufw allow 8000/tcp
+```
 
 Unter Windows PowerShell können beide x64-Agenten gebaut werden:
 
@@ -75,13 +86,13 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o ../dist/aegis-agent.exe .
 Agent zuerst einmalig registrieren; danach wird `host_token` in `/etc/aegis/config.json` (Linux) bzw. `%ProgramData%\Aegis\config.json` (Windows) gespeichert:
 
 ```sh
-sudo ./aegis-agent-linux -server http://192.168.56.10:8000 -register <enroll_code> -debug -once
-sudo ./aegis-agent-linux -server http://192.168.56.10:8000 -debug -once
+sudo ./aegis-agent-linux -server http://<CONTROL_VM_IP>:8000 -register <enroll_code> -debug -once
+sudo ./aegis-agent-linux -debug -once
 ```
 
 ```powershell
-.\aegis-agent.exe -server http://192.168.56.10:8000 -register <enroll_code> -debug -once
-.\aegis-agent.exe -server http://192.168.56.10:8000 -debug -once
+.\aegis-agent.exe -server http://<CONTROL_VM_IP>:8000 -register <enroll_code> -debug -once
+.\aegis-agent.exe -debug -once
 ```
 
 `-debug` protokolliert Endpunkte, HTTP-Status und Netzwerkfehler, niemals den Tokenwert. Unter Linux benötigt das Anlegen der Konfiguration Schreibrechte für `/etc/aegis`; Windows muss mit Rechten zum Schreiben in ProgramData laufen.
