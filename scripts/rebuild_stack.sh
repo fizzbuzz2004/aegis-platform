@@ -2,15 +2,37 @@
 set -Eeuo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-if [[ -f "$REPOSITORY_ROOT/.env" ]]; then
-    ENV_FILE="$REPOSITORY_ROOT/.env"
-elif [[ -f "$REPOSITORY_ROOT/control-plane/.env" ]]; then
-    ENV_FILE="$REPOSITORY_ROOT/control-plane/.env"
+ROOT_ENV_FILE="$REPOSITORY_ROOT/.env"
+CONTROL_PLANE_ENV_FILE="$REPOSITORY_ROOT/control-plane/.env"
+
+if [[ -n "${AEGIS_ENV_FILE:-}" ]]; then
+    if [[ "$AEGIS_ENV_FILE" = /* ]]; then
+        ENV_FILE="$AEGIS_ENV_FILE"
+    else
+        ENV_FILE="$REPOSITORY_ROOT/$AEGIS_ENV_FILE"
+    fi
+    if [[ ! -f "$ENV_FILE" ]]; then
+        echo "AEGIS_ENV_FILE does not exist: $ENV_FILE" >&2
+        exit 1
+    fi
+elif [[ -f "$ROOT_ENV_FILE" && -f "$CONTROL_PLANE_ENV_FILE" ]]; then
+    if cmp -s "$ROOT_ENV_FILE" "$CONTROL_PLANE_ENV_FILE"; then
+        ENV_FILE="$ROOT_ENV_FILE"
+    else
+        echo "Both root .env and control-plane/.env exist and differ." >&2
+        echo "Choose the intended file explicitly, e.g. AEGIS_ENV_FILE=control-plane/.env bash scripts/rebuild_stack.sh" >&2
+        exit 1
+    fi
+elif [[ -f "$ROOT_ENV_FILE" ]]; then
+    ENV_FILE="$ROOT_ENV_FILE"
+elif [[ -f "$CONTROL_PLANE_ENV_FILE" ]]; then
+    ENV_FILE="$CONTROL_PLANE_ENV_FILE"
 else
     echo "No .env file found at repository root or control-plane/.env." >&2
     echo "Copy .env.example to one of those locations and set SECRET_KEY and ADMIN_INITIAL_PASSWORD." >&2
     exit 1
 fi
+echo "Using Compose environment file: ${ENV_FILE#"$REPOSITORY_ROOT"/}"
 
 dotenv_project_name="$(sed -n 's/^[[:space:]]*COMPOSE_PROJECT_NAME[[:space:]]*=[[:space:]]*//p' "$ENV_FILE" | tail -n 1 | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-${dotenv_project_name:-aegis-platform}}"

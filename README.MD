@@ -30,6 +30,18 @@ docker compose ps
 
 Der lokale Stack ist in `docker-compose.yml` definiert. `docker-compose.prod.yml` ist für ein bereits gebautes `aegis-control-plane:latest` Image und eine externe Datenbank gedacht; er enthält keinen Postgres-Service und ist nicht der Quickstart für eine leere VirtualBox-Testumgebung.
 
+Für den Wiederaufbau mit `scripts/rebuild_stack.sh` wird `.env` an der Repository-Wurzel oder in `control-plane/` verwendet. Wenn beide Dateien existieren und voneinander abweichen, muss der gewünschte Pfad explizit gewählt werden, damit nicht versehentlich ein anderer Bootstrap-Admin-Hash erzeugt wird:
+
+```sh
+sudo env AEGIS_ENV_FILE=control-plane/.env bash scripts/rebuild_stack.sh
+```
+
+Wenn der Admin bereits in der Datenbank vorhanden ist und sein Bootstrap-Passwort geändert wurde, kann der Hash kontrolliert auf das Passwort der ausgewählten Compose-Umgebung zurückgesetzt werden. Der Befehl zeigt weder Passwort noch Hash an:
+
+```sh
+sudo docker compose --env-file control-plane/.env exec -T control-plane python -c 'from app.core.config import settings; from app.core.database import SessionLocal; from app.core.security import get_password_hash; from app.models.orm import User; db = SessionLocal(); admin = db.query(User).filter(User.username == "admin").one(); admin.hashed_password = get_password_hash(settings.ADMIN_INITIAL_PASSWORD); admin.must_change_password = True; db.commit(); print("Bootstrap admin password reset from selected Compose environment"); db.close()'
+```
+
 🛠 Entwicklung & Workflows
 Agent kompilieren (scripts/build.sh)
 Baut Binaries für Zielplattformen (z. B. Windows & Linux) nach ./dist/:
