@@ -1,5 +1,4 @@
 import logging
-import secrets
 import sys
 import asyncio
 import os
@@ -18,6 +17,7 @@ from app.core.limiter import limiter  # Zentraler Import zur Vermeidung zirkulä
 from app.models.orm import User, UserRole, Tenant, TenantModule
 from app.services.backup_alerts import evaluate_backup_alerts
 from app.api.v1.router import api_router
+from app.api.v1.v2_reports import router as v2_report_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -151,9 +151,11 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 app.include_router(api_router, prefix="/api/v1")
+app.include_router(v2_report_router, prefix="/api/v2", tags=["Async Report Jobs"])
 
 if __name__ == "__main__":
     import uvicorn
+    from app.core.mtls import MTLSH11Protocol
 
     if settings.AEGIS_MTLS_ENABLED:
         tls_files = (
@@ -164,16 +166,20 @@ if __name__ == "__main__":
         if not all(tls_files) or not all(os.path.isfile(path) for path in tls_files):
             raise RuntimeError("mTLS requires readable server certificate, private key, and client CA files")
         app.state.mtls_listener_configured = True
-        uvicorn.run(
+        server_config = uvicorn.Config(
             app,
             host=os.getenv("HOST", "0.0.0.0"),
             port=int(os.getenv("PORT", "8000")),
+            http="h11",
             ssl_certfile=settings.AEGIS_TLS_CERT_FILE,
             ssl_keyfile=settings.AEGIS_TLS_KEY_FILE,
             ssl_ca_certs=settings.AEGIS_TLS_CA_FILE,
             ssl_cert_reqs=ssl.CERT_REQUIRED,
             proxy_headers=False,
         )
+        server_config.load()
+        server_config.http_protocol_class = MTLSH11Protocol
+        asyncio.run(uvicorn.Server(server_config).serve())
     else:
         app.state.mtls_listener_configured = False
         uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", "8000")))

@@ -2,7 +2,12 @@ package core
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -20,7 +25,7 @@ func TestFetchUpdateMetadataUsesHostBearerToken(t *testing.T) {
 			t.Errorf("Authorization = %q, want bearer token", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, `{"version":"1.2.3","download_url":"https://updates.example/aegis","sha256":"`+strings.Repeat("a", 64)+`","os_info":"linux-amd64"}`)
+		_, _ = fmt.Fprint(w, `{"version":"1.2.3","download_url":"https://updates.example/aegis","sha256":"`+strings.Repeat("a", 64)+`","os_info":"linux-amd64","signature":"`+base64.StdEncoding.EncodeToString([]byte("test-signature"))+`"}`)
 	}))
 	defer server.Close()
 
@@ -104,7 +109,7 @@ func TestIsNewerVersionUsesSemanticOrdering(t *testing.T) {
 }
 
 func TestUpdateMetadataRejectsInsecureOrMalformedFields(t *testing.T) {
-	valid := UpdateMetadata{Version: "1.2.3", DownloadURL: "https://updates.example/agent", SHA256: strings.Repeat("a", 64)}
+	valid := UpdateMetadata{Version: "1.2.3", DownloadURL: "https://updates.example/agent", SHA256: strings.Repeat("a", 64), Signature: base64.StdEncoding.EncodeToString([]byte("test-signature"))}
 	tests := []UpdateMetadata{
 		{Version: "01.2.3", DownloadURL: valid.DownloadURL, SHA256: valid.SHA256},
 		{Version: valid.Version, DownloadURL: "http://updates.example/agent", SHA256: valid.SHA256},
@@ -115,4 +120,47 @@ func TestUpdateMetadataRejectsInsecureOrMalformedFields(t *testing.T) {
 			t.Errorf("metadata.validate() accepted %#v", metadata)
 		}
 	}
+}
+
+func TestVerifyUpdateSignatureChecksReleaseIdentityAndDigest(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("MarshalPKIXPublicKey() error = %v", err)
+	}
+	previousPublicKey := updateSigningPublicKeyB64
+	updateSigningPublicKeyB64 = base64.StdEncoding.EncodeToString(publicKeyDER)
+	t.Cleanup(func() { updateSigningPublicKeyB64 = previousPublicKey })
+
+	metadata := UpdateMetadata{
+		Version:     "1.2.3",
+		DownloadURL: "https://updates.example/agent",
+		SHA256:      strings.Repeat("a", 64),
+		OSInfo:      "windows-amd64",
+	}
+	digest := sha256.Sum256(updateSignatureMessage(metadata))
+	metadata.Signature = base64.StdEncoding.EncodeToString(mustSignPSS(t, privateKey, digest[:]))
+	if err := verifyUpdateSignature(metadata); err != nil {
+		t.Fatalf("verifyUpdateSignature() error = %v", err)
+	}
+
+	metadata.OSInfo = "linux-amd64"
+	if err := verifyUpdateSignature(metadata); err == nil {
+		t.Fatal("verifyUpdateSignature() accepted metadata with a tampered platform")
+	}
+}
+
+func mustSignPSS(t *testing.T, privateKey *rsa.PrivateKey, digest []byte) []byte {
+	t.Helper()
+	signature, err := rsa.SignPSS(rand.Reader, privateKey, crypto.SHA256, digest, &rsa.PSSOptions{
+		SaltLength: rsa.PSSSaltLengthEqualsHash,
+		Hash:       crypto.SHA256,
+	})
+	if err != nil {
+		t.Fatalf("SignPSS() error = %v", err)
+	}
+	return signature
 }

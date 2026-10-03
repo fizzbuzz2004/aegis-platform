@@ -2,7 +2,11 @@ package core
 
 import (
 	"context"
+	"crypto"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,6 +24,8 @@ import (
 
 const maxUpdateSize = 512 << 20
 
+var updateSigningPublicKeyB64 string
+
 var semanticVersionPattern = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 var updateOSInfoPattern = regexp.MustCompile(`^(linux|windows|darwin)-(amd64|arm64)$`)
 
@@ -28,6 +34,7 @@ type UpdateMetadata struct {
 	DownloadURL string `json:"download_url"`
 	SHA256      string `json:"sha256"`
 	OSInfo      string `json:"os_info"`
+	Signature   string `json:"signature"`
 }
 
 func (s *SyncClient) FetchUpdateMetadata(ctx context.Context) (*UpdateMetadata, error) {
@@ -85,6 +92,40 @@ func (m UpdateMetadata) validate() error {
 	if !updateOSInfoPattern.MatchString(m.OSInfo) {
 		return fmt.Errorf("update OS info is invalid")
 	}
+	if _, err := base64.StdEncoding.DecodeString(m.Signature); err != nil || m.Signature == "" {
+		return fmt.Errorf("update signature is missing or malformed")
+	}
+	return nil
+}
+
+func updateSignatureMessage(metadata UpdateMetadata) []byte {
+	return []byte("aegis-agent-release-v1\n" + metadata.Version + "\n" + metadata.OSInfo + "\n" + strings.ToLower(metadata.SHA256))
+}
+
+func verifyUpdateSignature(metadata UpdateMetadata) error {
+	publicKeyDER, err := base64.StdEncoding.DecodeString(updateSigningPublicKeyB64)
+	if err != nil || len(publicKeyDER) == 0 {
+		return fmt.Errorf("agent update signing public key is not configured")
+	}
+	parsedKey, err := x509.ParsePKIXPublicKey(publicKeyDER)
+	if err != nil {
+		return fmt.Errorf("agent update signing public key is invalid: %w", err)
+	}
+	publicKey, ok := parsedKey.(*rsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("agent update signing key must be RSA")
+	}
+	signature, err := base64.StdEncoding.DecodeString(metadata.Signature)
+	if err != nil {
+		return fmt.Errorf("agent update signature is malformed: %w", err)
+	}
+	digest := sha256.Sum256(updateSignatureMessage(metadata))
+	if err := rsa.VerifyPSS(publicKey, crypto.SHA256, digest[:], signature, &rsa.PSSOptions{
+		SaltLength: rsa.PSSSaltLengthEqualsHash,
+		Hash:       crypto.SHA256,
+	}); err != nil {
+		return fmt.Errorf("agent update signature verification failed")
+	}
 	return nil
 }
 
@@ -111,6 +152,10 @@ func (s *SyncClient) CheckAndApplyUpdate(ctx context.Context, currentVersion str
 	}
 	if metadata == nil {
 		return false, nil
+	}
+	if err := verifyUpdateSignature(*metadata); err != nil {
+		writeAudit("update signature verification failed")
+		return false, err
 	}
 	if metadata.OSInfo != runtime.GOOS+"-"+runtime.GOARCH {
 		return false, nil

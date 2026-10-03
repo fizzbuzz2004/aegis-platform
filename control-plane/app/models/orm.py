@@ -74,6 +74,8 @@ class HostDevice(Base):
     hostname = Column(String(100), nullable=False)
     os_info = Column(String(100), nullable=False)
     host_token = Column(String(255), unique=True, index=True, nullable=False)
+    client_cert_fingerprint = Column(String(64), nullable=True, unique=True, index=True)
+    is_active = Column(Boolean, default=True, server_default="true", nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     tenant = relationship("Tenant", back_populates="hosts")
