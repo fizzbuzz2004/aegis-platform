@@ -2,6 +2,8 @@ import logging
 import secrets
 import sys
 import asyncio
+import os
+import ssl
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -86,6 +88,8 @@ def seed_initial_data():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if settings.AEGIS_MTLS_ENABLED and not getattr(app.state, "mtls_listener_configured", False):
+        raise RuntimeError("mTLS is enabled; start the control plane with python -m app.main")
     Base.metadata.create_all(bind=engine)
     seed_initial_data()
 
@@ -147,3 +151,29 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 app.include_router(api_router, prefix="/api/v1")
+
+if __name__ == "__main__":
+    import uvicorn
+
+    if settings.AEGIS_MTLS_ENABLED:
+        tls_files = (
+            settings.AEGIS_TLS_CERT_FILE,
+            settings.AEGIS_TLS_KEY_FILE,
+            settings.AEGIS_TLS_CA_FILE,
+        )
+        if not all(tls_files) or not all(os.path.isfile(path) for path in tls_files):
+            raise RuntimeError("mTLS requires readable server certificate, private key, and client CA files")
+        app.state.mtls_listener_configured = True
+        uvicorn.run(
+            app,
+            host=os.getenv("HOST", "0.0.0.0"),
+            port=int(os.getenv("PORT", "8000")),
+            ssl_certfile=settings.AEGIS_TLS_CERT_FILE,
+            ssl_keyfile=settings.AEGIS_TLS_KEY_FILE,
+            ssl_ca_certs=settings.AEGIS_TLS_CA_FILE,
+            ssl_cert_reqs=ssl.CERT_REQUIRED,
+            proxy_headers=False,
+        )
+    else:
+        app.state.mtls_listener_configured = False
+        uvicorn.run(app, host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", "8000")))

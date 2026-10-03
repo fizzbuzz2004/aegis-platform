@@ -24,9 +24,14 @@ cp .env.example .env
 Setze in `.env` mindestens ein eigenes `SECRET_KEY` und ein `ADMIN_INITIAL_PASSWORD` mit mindestens 12 Zeichen. Danach den mitgelieferten Control-Plane- und Postgres-Stack starten:
 
 ```sh
+mkdir -p certs
+bash scripts/generate_mtls_certs.sh ./certs <CONTROL_VM_IP> ubuntu-agent
+bash scripts/generate_mtls_certs.sh ./certs <CONTROL_VM_IP> windows-agent
 docker compose up -d --build
 docker compose ps
 ```
+
+Die Generatoren fragen das Passwort des Root-CA-Schlüssels und das Client-PFX-Passwort ab. `certs/server/` enthält nur Control-Plane-Material; `certs/ca/ca.key` bleibt offline und wird niemals auf eine VM kopiert. Alternativ unter Windows mit OpenSSL ausführen: `scripts/generate_mtls_certs.ps1 -OutputDirectory .\certs -ServerName <CONTROL_VM_IP> -ClientName ubuntu-agent` (für jeden Agenten mit eigenem `ClientName` wiederholen). Siehe „VirtualBox-Testnetz und mTLS“ für die sichere Verteilung.
 
 Der lokale Stack ist in `docker-compose.yml` definiert. `docker-compose.prod.yml` ist für ein bereits gebautes `aegis-control-plane:latest` Image und eine externe Datenbank gedacht; er enthält keinen Postgres-Service und ist nicht der Quickstart für eine leere VirtualBox-Testumgebung.
 
@@ -55,7 +60,9 @@ cd control-plane
 python -m venv .venv
 source .venv/bin/activate  # Unter Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+AEGIS_MTLS_ENABLED=false uvicorn app.main:app --reload
+
+Das HTTP-Kommando ist ausschließlich für isolierte lokale Entwicklung. Der produktive Compose-Start läuft über `python -m app.main` mit mTLS; direkter Uvicorn-Start ohne TLS-Material ist nicht für Agent-Verkehr geeignet.
 
 Tests ausführen
 
@@ -65,15 +72,46 @@ cd agent-go && go test ./...
 # Control-Plane Tests
 cd control-plane && pytest
 
-## VirtualBox-Testnetz und Debugging
+## VirtualBox-Testnetz und mTLS
 
-Die derzeit registrierten VirtualBox-VMs verwenden Bridged Networking. Ermittle die IPv4-Adresse der Ubuntu-Control-VM in der VM mit `ip -4 -o addr show scope global` und verwende die Adresse des bridged Interfaces, nicht `127.0.0.1` oder ungeprüft `192.168.56.10`. Die Ubuntu- und Windows-Agenten müssen TCP-Port 8000 auf dieser Adresse erreichen können; sie müssen einander nicht erreichen.
+Die VirtualBox-VMs verwenden Bridged Networking. Ermittle die IPv4-Adresse der Ubuntu-Control-VM mit `ip -4 -o addr show scope global`; verwende diese Adresse als `ServerName` und Agent-URL. Die Generatoren erstellen eine verschlüsselte Root-CA, ein Serverzertifikat sowie ein eigenes Client-Zertifikat samt verschlüsseltem PFX je Agent. OpenSSL muss auf dem Generierungsrechner installiert sein.
 
-Von beiden Agent-VMs vor der Registrierung testen:
+Die Compose-Control-Plane verlangt Client-Zertifikate am TLS-Listener. Gemountet wird ausschließlich `certs/server/` mit `server.crt`, `server.key` und `ca.crt`; `certs/ca/ca.key` bleibt offline. Verteile pro VM nur den eigenen Ordner `certs/clients/<client-name>/` über einen authentisierten, verschlüsselten Kanal. Committe `certs/` nicht. Private Agent-Schlüssel erhalten restriktive ACLs/Rechte; die CA-Datei ist öffentlich und darf verteilt werden.
+
+Linux-Agent vorbereiten und registrieren:
 
 ```sh
-curl -f http://<CONTROL_VM_IP>:8000/docs
+sudo install -d -m 700 /etc/aegis/pki
+sudo install -m 644 certs/clients/ubuntu-agent/ca.crt /etc/aegis/pki/ca.crt
+sudo install -m 644 certs/clients/ubuntu-agent/client.crt /etc/aegis/pki/client.crt
+sudo install -m 600 certs/clients/ubuntu-agent/client.key /etc/aegis/pki/client.key
+sudo ./aegis-agent-linux -server https://<CONTROL_VM_IP>:8000 -register <enroll_code> -once
 ```
+
+Windows als Administrator ausführen. Das Deployment-Skript setzt eine restriktive ACL auf `%ProgramData%\Aegis\pki`, importiert die CA in den Windows-Vertrauensspeicher und verwendet das PFX für Download und Registrierung. Das PFX-Passwort wird als SecureString abgefragt:
+
+```powershell
+.\scripts\deploy_rmm_windows.ps1 `
+	-EnrollmentCode <enroll_code> `
+	-ServerUrl https://<CONTROL_VM_IP>:8000 `
+	-RootCACertificate .\certs\clients\windows-agent\ca.crt `
+	-ClientCertificate .\certs\clients\windows-agent\client.crt `
+	-ClientPrivateKey .\certs\clients\windows-agent\client.key `
+	-ClientPfx .\certs\clients\windows-agent\client.p12 `
+	-ClientPfxPassword (Read-Host -AsSecureString "Client PFX password")
+```
+
+Prüfe die Verbindung vom Ubuntu-Agenten, bevor du den Agent startest:
+
+```sh
+curl --fail --cacert /etc/aegis/pki/ca.crt \
+	--cert /etc/aegis/pki/client.crt --key /etc/aegis/pki/client.key \
+	https://<CONTROL_VM_IP>:8000/docs
+```
+
+Die Client-Routen behalten zusätzlich die Bearer-Token-Autorisierung. TLS verifiziert die Client-Kette einmal pro Verbindung; HTTP-Keepalive vermeidet unnötige Handshakes. Die Anwendung speichert derzeit keine Zertifikat-Fingerprints pro Host und prüft keine CRL. Bei Schlüsselverlust die betroffene Client-Identität, bei CA-Verlust die gesamte CA kontrolliert rotieren.
+
+Der TLS-Test mit `curl --cacert --cert --key` oben prüft zugleich Erreichbarkeit, Server-Identität und Client-Zertifikat. TCP-Port 8000 muss von beiden Agent-VMs zur Control-VM erreichbar sein; die Agent-VMs müssen einander nicht erreichen.
 
 Falls UFW auf der Control-VM aktiv ist, Port 8000 dort freigeben:
 
@@ -95,25 +133,20 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o ../dist/aegis-agent-linux .
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o ../dist/aegis-agent.exe .
 ```
 
-Agent zuerst einmalig registrieren; danach wird `host_token` in `/etc/aegis/config.json` (Linux) bzw. `%ProgramData%\Aegis\config.json` (Windows) gespeichert:
+Linux-Agenten speichern `host_token` nach erfolgreicher Registrierung in `/etc/aegis/config.json`; Windows speichert die Konfiguration unter `%ProgramData%\Aegis\config.json`.
 
 ```sh
-sudo ./aegis-agent-linux -server http://<CONTROL_VM_IP>:8000 -register <enroll_code> -debug -once
+sudo ./aegis-agent-linux -server https://<CONTROL_VM_IP>:8000 -register <enroll_code> -debug -once
 sudo ./aegis-agent-linux -debug -once
-```
-
-```powershell
-.\aegis-agent.exe -server http://<CONTROL_VM_IP>:8000 -register <enroll_code> -debug -once
-.\aegis-agent.exe -debug -once
 ```
 
 `-debug` protokolliert Endpunkte, HTTP-Status und Netzwerkfehler, niemals den Tokenwert. Unter Linux benötigt das Anlegen der Konfiguration Schreibrechte für `/etc/aegis`; Windows muss mit Rechten zum Schreiben in ProgramData laufen.
 
-## Agent Auto-Update (Linux)
+## Agent Auto-Update (Linux und Windows)
 
 Der Control-Plane-Endpunkt `GET /api/v1/agents/update` liefert Release-Metadaten nur an Hosts mit gültigem `Authorization: Bearer <host_token>`. Für Updates muss auch die Agent-URL der Control Plane HTTPS verwenden; bei einer HTTP-URL laufen normale Sync-Zyklen weiter, aber Auto-Update bleibt deaktiviert. Veröffentliche das Linux-Binary auf einem HTTPS-fähigen Artefaktserver und setze `AGENT_UPDATE_VERSION`, `AGENT_UPDATE_URL`, `AGENT_UPDATE_SHA256` und `AGENT_UPDATE_OS_INFO` in der Control-Plane-Umgebung. `AGENT_UPDATE_OS_INFO` muss zum Binary passen, zum Beispiel `linux-amd64` oder `linux-arm64`. Alle vier Werte müssen gesetzt sein; ohne Konfiguration ist Auto-Update deaktiviert. Berechne den Digest für exakt die ausgelieferte Datei, zum Beispiel mit `sha256sum aegis-agent-linux-x64`.
 
-Baue jedes Release mit derselben Version im Binary, zum Beispiel `AEGIS_AGENT_VERSION=1.2.3 ./scripts/build.sh`. Der Linux-Agent fragt nach einem erfolgreichen Reconcile-Zyklus nach Updates, lädt die Datei über HTTPS in sein Installationsverzeichnis, prüft SHA-256 und ersetzt das Binary atomar. Danach beendet er sich, damit `systemd` den aktualisierten Agenten neu startet. Der Dienst muss `Restart=always` oder `Restart=on-failure` verwenden und Schreibrechte auf das Binary-Verzeichnis haben. Die Prüfsumme schützt vor Übertragungsfehlern; der Metadaten-Endpunkt und Artefaktserver müssen zusätzlich über vertrauenswürdiges TLS erreichbar sein.
+Baue jedes Release mit derselben Version im Binary, zum Beispiel `AEGIS_AGENT_VERSION=1.2.3 ./scripts/build.sh`. Linux und Windows rufen den Metadaten-Endpunkt über mTLS auf, laden die Datei über HTTPS und prüfen SHA-256. Linux ersetzt das Binary atomar und beendet sich für den systemd-Neustart. Windows startet einen PowerShell-Helfer, der auf das Ende des Agenten wartet, das bisherige Binary als `.old` sichert, das geprüfte Staging-Binary aktiviert und den Agenten mit den ursprünglichen Argumenten neu startet. Der Installationsordner muss für den Agenten schreibbar und auf Dienstkonto/Administratoren beschränkt sein. Metadaten- und Artefaktserver müssen über vertrauenswürdiges TLS erreichbar sein.
 
 ## Neue Agent-Probe
 

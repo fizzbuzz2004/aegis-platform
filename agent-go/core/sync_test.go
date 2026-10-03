@@ -2,15 +2,68 @@ package core
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aegis-platform/agent-go/probes"
 )
+
+func TestMTLSTransportTrustsCAAndPresentsClientCertificate(t *testing.T) {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+			t.Error("request did not present a client certificate")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	server.TLS = &tls.Config{ClientAuth: tls.RequireAnyClientCert}
+	server.StartTLS()
+	defer server.Close()
+
+	certificate := server.Certificate()
+	certificatePEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Raw})
+	privateKeyDER, err := x509.MarshalPKCS8PrivateKey(server.TLS.Certificates[0].PrivateKey)
+	if err != nil {
+		t.Fatalf("MarshalPKCS8PrivateKey() error = %v", err)
+	}
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKeyDER})
+	certificatePath := filepath.Join(t.TempDir(), "client.crt")
+	privateKeyPath := filepath.Join(t.TempDir(), "client.key")
+	caPath := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(certificatePath, certificatePEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(privateKeyPath, privateKeyPEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(caPath, certificatePEM, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AEGIS_CLIENT_CERT", certificatePath)
+	t.Setenv("AEGIS_CLIENT_KEY", privateKeyPath)
+	t.Setenv("AEGIS_CA_CERT", caPath)
+
+	transport, err := newMTLSTransport()
+	if err != nil {
+		t.Fatalf("newMTLSTransport() error = %v", err)
+	}
+	defer transport.CloseIdleConnections()
+	response, err := (&http.Client{Transport: transport}).Get(server.URL)
+	if err != nil {
+		t.Fatalf("mTLS request failed: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP status = %d, want %d", response.StatusCode, http.StatusOK)
+	}
+}
 
 func TestFetchDesiredStateSendsBearerToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

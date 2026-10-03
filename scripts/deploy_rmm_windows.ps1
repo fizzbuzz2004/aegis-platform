@@ -19,19 +19,62 @@
 param (
     [Parameter(Mandatory=$true)]
     [string]$EnrollmentCode,
-    
+
     [string]$ServerUrl = "https://aegis.msp-control.com",
-    
-    [switch]$TestMode
+
+    [Parameter(Mandatory=$true)]
+    [string]$RootCACertificate,
+
+    [Parameter(Mandatory=$true)]
+    [string]$ClientCertificate,
+
+    [Parameter(Mandatory=$true)]
+    [string]$ClientPrivateKey,
+
+    [Parameter(Mandatory=$true)]
+    [string]$ClientPfx,
+
+    [Parameter(Mandatory=$true)]
+    [securestring]$ClientPfxPassword
 )
 
 $ErrorActionPreference = "Stop"
 $InstallDir = "C:\ProgramData\Aegis"
-$LogFile = Join-Path$InstallDir "deployment.log"
+$PkiDir = Join-Path $InstallDir "pki"
+$LogFile = Join-Path $InstallDir "deployment.log"
 
 # Stelle sicher, dass das Installationsverzeichnis existiert
 if (!(Test-Path $InstallDir)) { 
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null 
+}
+if (!(Test-Path $PkiDir)) {
+    New-Item -ItemType Directory -Path $PkiDir -Force | Out-Null
+}
+
+foreach ($CertificateFile in @($RootCACertificate, $ClientCertificate, $ClientPrivateKey, $ClientPfx)) {
+    if (!(Test-Path -LiteralPath $CertificateFile -PathType Leaf)) {
+        throw "Certificate input file does not exist: $CertificateFile"
+    }
+}
+
+icacls.exe $PkiDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Could not restrict the agent certificate directory ACL." }
+Copy-Item -LiteralPath $RootCACertificate -Destination (Join-Path $PkiDir "ca.crt") -Force
+Copy-Item -LiteralPath $ClientCertificate -Destination (Join-Path $PkiDir "client.crt") -Force
+Copy-Item -LiteralPath $ClientPrivateKey -Destination (Join-Path $PkiDir "client.key") -Force
+
+Import-Certificate -FilePath (Join-Path $PkiDir "ca.crt") -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+$PasswordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($ClientPfxPassword)
+try {
+    $PfxPasswordPlainText = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($PasswordPointer)
+    $ClientCertificateObject = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+        $ClientPfx,
+        $PfxPasswordPlainText,
+        [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+    )
+} finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($PasswordPointer)
+    $PfxPasswordPlainText = $null
 }
 
 # Zentrales Logging für RMM-Audits einrichten
@@ -46,12 +89,8 @@ function Write-Log {
 try {
     Write-Log "=== Starte Aegis Agent Deployment ==="
 
-    # NIS2 / Lab-Handling: TLS-Sicherheit erzwingen, Zertifikate im Testmodus optional bypassen
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-    if ($TestMode) {
-        Write-Log "WARNUNG: TestMode aktiv - SSL-Zertifikatsvalidierung wird übersprungen." "WARN"
-        [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
-    }
+    # Keep platform TLS defaults and certificate validation enabled.
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
     $BinaryUrl = "$ServerUrl/downloads/aegis-agent-win-x64.exe"
     $ExePath = Join-Path$InstallDir "aegis-agent.exe"
@@ -76,7 +115,7 @@ try {
 
     while (!$Downloaded -and $RetryCount -lt$MaxRetries) {
         try {
-            Invoke-WebRequest -Uri $BinaryUrl -OutFile$ExePath -UseBasicParsing -ErrorAction Stop
+            Invoke-WebRequest -Uri $BinaryUrl -OutFile $ExePath -Certificate $ClientCertificateObject -UseBasicParsing -ErrorAction Stop
             $Downloaded =$true
             Write-Log "Download erfolgreich."
         } catch {
@@ -96,7 +135,7 @@ try {
         os_info         = $OSInfo
     } | ConvertTo-Json -Depth 2
 
-    $Response = Invoke-RestMethod -Uri "$ServerUrl/api/v1/agents/register" -Method Post -Body $Payload -ContentType "application/json"
+    $Response = Invoke-RestMethod -Uri "$ServerUrl/api/v1/agents/register" -Method Post -Body $Payload -ContentType "application/json" -Certificate $ClientCertificateObject
 
     if ($Response.status -eq "success" -and $Response.host_token) {
         Write-Log "Registrierung erfolgreich. Schreibe Systemvariablen..."
@@ -123,6 +162,7 @@ try {
 
         Write-Log "Starte Windows Dienst..."
         Start-Service -Name "AegisAgent"
+        $ClientCertificateObject.Dispose()
         
         # Überprüfe, ob der Dienst wirklich läuft
         Start-Sleep -Seconds 2

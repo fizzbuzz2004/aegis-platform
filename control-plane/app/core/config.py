@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     AGENT_UPDATE_URL: Optional[str] = None
     AGENT_UPDATE_SHA256: Optional[str] = None
     AGENT_UPDATE_OS_INFO: Optional[str] = None
+
+    AEGIS_MTLS_ENABLED: bool = True
+    AEGIS_TLS_CERT_FILE: Optional[str] = None
+    AEGIS_TLS_KEY_FILE: Optional[str] = None
+    AEGIS_TLS_CA_FILE: Optional[str] = None
     
     ALGORITHM: str = os.getenv("ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "120"))

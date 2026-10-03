@@ -88,10 +88,10 @@ func (m UpdateMetadata) validate() error {
 	return nil
 }
 
-// CheckAndApplyUpdate downloads only newer releases and atomically replaces the Linux executable.
+// CheckAndApplyUpdate downloads only newer releases and replaces the executable using the platform updater.
 // The audit callback records lifecycle events in the agent's existing WORM log.
 func (s *SyncClient) CheckAndApplyUpdate(ctx context.Context, currentVersion string, audit func(string)) (bool, error) {
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return false, nil
 	}
 	controlPlaneURL, err := url.ParseRequestURI(s.ServerURL)
@@ -190,8 +190,8 @@ func (s *SyncClient) CheckAndApplyUpdate(ctx context.Context, currentVersion str
 
 	replaced, err := replaceExecutable(executable, stagedPath)
 	if replaced {
-		writeAudit("update binary replaced atomically")
-		writeAudit("restarting agent for updated binary")
+		writeAudit("update replacement scheduled or completed")
+		writeAudit("restarting agent with updated binary")
 	}
 	if err != nil {
 		writeAudit("update replacement warning: " + err.Error())

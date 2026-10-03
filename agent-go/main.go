@@ -33,7 +33,7 @@ func main() {
 	}
 	serverURLValue := config.ServerURL
 	if serverURLValue == "" {
-		serverURLValue = "http://127.0.0.1:8000"
+		serverURLValue = "https://127.0.0.1:8000"
 	}
 	if envServerURL := os.Getenv("AEGIS_SERVER_URL"); envServerURL != "" {
 		serverURLValue = envServerURL
@@ -114,7 +114,7 @@ func main() {
 	if tokenValue == "" && *enrollCode == "" {
 		log.Printf("[AUTH WARN] Kein Host-Token konfiguriert. Agent zuerst mit -register <enroll_code> registrieren.")
 	}
-	if runtime.GOOS == "linux" && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(serverURLValue)), "https://") {
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(serverURLValue)), "https://") {
 		log.Printf("[UPDATE WARN] Auto-Update deaktiviert: Die Control-Plane-URL muss HTTPS verwenden. Sync-Zyklen laufen weiter.")
 	}
 
@@ -208,7 +208,7 @@ func main() {
 			fmt.Printf("[UPDATE WARN] Update wurde nicht angewendet: %v\n", updateErr)
 		}
 		if updated {
-			fmt.Println("[UPDATE] Binary ersetzt; Agent beendet sich für den systemd-Neustart.")
+			fmt.Println("[UPDATE] Ersatz geplant; Agent wird beendet und mit der aktualisierten Binary neu gestartet.")
 		}
 		return updated
 	}

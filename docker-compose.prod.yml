@@ -10,10 +10,16 @@ services:
     environment:
       - ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=120
+      - AEGIS_MTLS_ENABLED=true
+      - AEGIS_TLS_CERT_FILE=/run/aegis/tls/server.crt
+      - AEGIS_TLS_KEY_FILE=/run/aegis/tls/server.key
+      - AEGIS_TLS_CA_FILE=/run/aegis/tls/ca.crt
       - AGENT_UPDATE_VERSION=${AGENT_UPDATE_VERSION:-}
       - AGENT_UPDATE_URL=${AGENT_UPDATE_URL:-}
       - AGENT_UPDATE_SHA256=${AGENT_UPDATE_SHA256:-}
       - AGENT_UPDATE_OS_INFO=${AGENT_UPDATE_OS_INFO:-}
+    volumes:
+      - ./certs/server:/run/aegis/tls:ro
 
 secrets:
   DATABASE_URL:

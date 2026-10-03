@@ -34,12 +34,18 @@ services:
       AGENT_UPDATE_URL: ${AGENT_UPDATE_URL:-}
       AGENT_UPDATE_SHA256: ${AGENT_UPDATE_SHA256:-}
       AGENT_UPDATE_OS_INFO: ${AGENT_UPDATE_OS_INFO:-}
+      AEGIS_MTLS_ENABLED: "true"
+      AEGIS_TLS_CERT_FILE: /run/aegis/tls/server.crt
+      AEGIS_TLS_KEY_FILE: /run/aegis/tls/server.key
+      AEGIS_TLS_CA_FILE: /run/aegis/tls/ca.crt
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:?Set ADMIN_INITIAL_PASSWORD in the Compose .env file}
+    volumes:
+      - ./certs/server:/run/aegis/tls:ro
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 3).close()"]
       interval: 10s
       timeout: 5s
       retries: 3

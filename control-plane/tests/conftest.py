@@ -11,6 +11,7 @@ sys.path.insert(0, str(control_plane_dir))
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test_secret_key_fuer_unit_tests_123456789"
 os.environ["ADMIN_INITIAL_PASSWORD"] = "TestPassword123!"
+os.environ["AEGIS_MTLS_ENABLED"] = "false"
 
 import pytest
 from fastapi import FastAPI

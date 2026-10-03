@@ -37,6 +37,13 @@ def test_agent_update_metadata_requires_host_token(client):
     response = client.get("/api/v1/agents/update")
     assert response.status_code == 401
 
+def test_agent_routes_reject_http_when_mtls_is_enabled(client, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "AEGIS_MTLS_ENABLED", True)
+    response = client.get("/api/v1/agents/update")
+    assert response.status_code == 403
+
 def test_agent_update_metadata_returns_configured_release(client, db, monkeypatch):
     from app.core.config import settings
     from app.models.orm import HostDevice, Tenant

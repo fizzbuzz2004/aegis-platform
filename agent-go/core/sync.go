@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,6 +39,15 @@ type ResultPayload struct {
 }
 
 func NewSyncClient(serverURL, hostToken, hostname, osInfo string) (*SyncClient, error) {
+	parsedURL, err := url.ParseRequestURI(serverURL)
+	if err != nil || parsedURL.Scheme != "https" || parsedURL.Host == "" || parsedURL.User != nil {
+		return nil, fmt.Errorf("control-plane URL must be HTTPS for mutual TLS")
+	}
+	transport, err := newMTLSTransport()
+	if err != nil {
+		return nil, err
+	}
+
 	queuePath := DefaultQueuePath()
 
 	if err := os.MkdirAll(filepath.Dir(queuePath), 0700); err != nil {
@@ -49,12 +61,8 @@ func NewSyncClient(serverURL, hostToken, hostname, osInfo string) (*SyncClient, 
 		OSInfo:    osInfo,
 		QueueDB:   queuePath,
 		HTTPClient: &http.Client{
-			Transport: &http.Transport{
-				MaxIdleConns:      10,
-				IdleConnTimeout:   30 * time.Second,
-				DisableKeepAlives: false,
-			},
-			Timeout: 10 * time.Second,
+			Transport: transport,
+			Timeout:   10 * time.Second,
 		},
 	}
 
@@ -62,6 +70,75 @@ func NewSyncClient(serverURL, hostToken, hostname, osInfo string) (*SyncClient, 
 		return nil, err
 	}
 	return client, nil
+}
+
+func newMTLSTransport() (*http.Transport, error) {
+	caPath := os.Getenv("AEGIS_CA_CERT")
+	clientCertPath := os.Getenv("AEGIS_CLIENT_CERT")
+	clientKeyPath := os.Getenv("AEGIS_CLIENT_KEY")
+	if runtime.GOOS == "windows" {
+		pkiDir := filepath.Join(os.Getenv("ProgramData"), "Aegis", "pki")
+		if os.Getenv("ProgramData") == "" {
+			pkiDir = `C:\ProgramData\Aegis\pki`
+		}
+		if caPath == "" {
+			caPath = filepath.Join(pkiDir, "ca.crt")
+		}
+		if clientCertPath == "" {
+			clientCertPath = filepath.Join(pkiDir, "client.crt")
+		}
+		if clientKeyPath == "" {
+			clientKeyPath = filepath.Join(pkiDir, "client.key")
+		}
+	} else {
+		if caPath == "" {
+			caPath = "/etc/aegis/pki/ca.crt"
+		}
+		if clientCertPath == "" {
+			clientCertPath = "/etc/aegis/pki/client.crt"
+		}
+		if clientKeyPath == "" {
+			clientKeyPath = "/etc/aegis/pki/client.key"
+		}
+	}
+
+	if runtime.GOOS != "windows" {
+		keyInfo, err := os.Stat(clientKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("cannot inspect mTLS client key: %w", err)
+		}
+		if keyInfo.Mode().Perm()&0077 != 0 {
+			return nil, fmt.Errorf("mTLS client key permissions must not grant group or other access")
+		}
+	}
+
+	clientCertificate, err := tls.LoadX509KeyPair(clientCertPath, clientKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot load mTLS client certificate and key: %w", err)
+	}
+	caPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read mTLS CA certificate: %w", err)
+	}
+	rootCAs := x509.NewCertPool()
+	if !rootCAs.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("mTLS CA file contains no valid certificates")
+	}
+
+	return &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion:   tls.VersionTLS12,
+			RootCAs:      rootCAs,
+			Certificates: []tls.Certificate{clientCertificate},
+		},
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		MaxConnsPerHost:       50,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}, nil
 }
 
 func DefaultQueuePath() string {
