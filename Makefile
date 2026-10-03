@@ -7,11 +7,11 @@ build-agent:
 	@./scripts/build.sh
 
 docker-up:
-	docker-compose up -d --build
+	docker compose up -d --build
 
 test-integrity:
 	./dist/aegis-agent-linux-x64 --verify
 
 clean:
 	rm -rf dist/
-	docker-compose down -v
+	docker compose down
