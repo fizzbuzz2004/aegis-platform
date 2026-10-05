@@ -2,6 +2,27 @@ package probes
 
 import "testing"
 
+func TestExpectedProbeModulesAreRegistered(t *testing.T) {
+	expectedModules := []string{
+		"cis_hardening",
+		"security_probe",
+		"backup_probe",
+		"storage_probe",
+		"encryption_probe",
+		"updates_probe",
+		"registry_probe",
+		"firewall_status",
+	}
+
+	probeMapMu.RLock()
+	defer probeMapMu.RUnlock()
+	for _, moduleName := range expectedModules {
+		if _, registered := probeMap[moduleName]; !registered {
+			t.Errorf("probe module %q is not registered", moduleName)
+		}
+	}
+}
+
 func TestParseUFWStatus(t *testing.T) {
 	tests := []struct {
 		name       string
