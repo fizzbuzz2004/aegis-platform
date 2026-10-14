@@ -259,7 +259,6 @@ func (s *SyncClient) FlushOfflineQueue(ctx context.Context) (int, int) {
 
 	succeeded := 0
 	for _, item := range queued {
-
 		req, err := http.NewRequestWithContext(ctx, "POST", s.ServerURL+"/api/v1/sync/results", bytes.NewBufferString(item.jsonBody))
 		if err != nil {
 			failed++

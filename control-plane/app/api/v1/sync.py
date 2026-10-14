@@ -57,7 +57,6 @@ def register_agent(
             detail="Ungültiger Enrollment-Code"
         )
     
-    # Generierung eines kryptografisch sicheren Tokens (64 Hex-Zeichen)
     secure_host_token = f"ath_{secrets.token_hex(32)}"
     
     existing_host = db.query(HostDevice).filter(
@@ -98,63 +97,6 @@ def get_desired_state(
     modules = db.query(TenantModule).filter(TenantModule.tenant_id == host.tenant_id).all()
     state = {m.module_name: m.is_enabled for m in modules}
     return state
-
-@router.get("/agents/update")
-def get_agent_update(
-    response: Response,
-    host: HostDevice = Depends(verify_host_token),
-):
-    response.headers["Cache-Control"] = "no-store"
-    version = settings.AGENT_UPDATE_VERSION
-    download_url = settings.AGENT_UPDATE_URL
-    sha256 = settings.AGENT_UPDATE_SHA256
-    os_info = settings.AGENT_UPDATE_OS_INFO
-    signature = settings.AGENT_UPDATE_SIGNATURE
-
-    if not any((version, download_url, sha256, os_info, signature)):
-        return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"Cache-Control": "no-store"})
-    if not all((version, download_url, sha256, os_info, signature)):
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Agent-Update unvollständig konfiguriert")
-
-    if host.os_info != os_info:
-        return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"Cache-Control": "no-store"})
-
-    try:
-        parsed_url = urlsplit(download_url)
-        parsed_url.port
-    except ValueError:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Agent-Update-Konfiguration ungültig")
-    if (
-        not re.fullmatch(
-            r"v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-            r"(?:-((?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
-            r"(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?"
-            r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?",
-            version,
-        )
-        or parsed_url.scheme != "https"
-        or not parsed_url.hostname
-        or parsed_url.username is not None
-        or parsed_url.password is not None
-        or not re.fullmatch(r"[0-9a-fA-F]{64}", sha256)
-        or not re.fullmatch(r"(?:linux|windows|darwin)-(?:amd64|arm64)", os_info)
-    ):
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Agent-Update-Konfiguration ungültig")
-
-    try:
-        decoded_signature = base64.b64decode(signature, validate=True)
-    except (ValueError, base64.binascii.Error):
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Agent-Update-Signatur ungültig") from None
-    if not 256 <= len(decoded_signature) <= 1024:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Agent-Update-Signatur ungültig")
-
-    return {
-        "version": version,
-        "download_url": download_url,
-        "sha256": sha256.lower(),
-        "os_info": os_info,
-        "signature": signature,
-    }
 
 @router.post("/sync/results")
 @limiter.limit("200/minute") 

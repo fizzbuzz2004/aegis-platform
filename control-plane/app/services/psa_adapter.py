@@ -44,7 +44,6 @@ class PSADispatcher:
         auth_header: Optional[str] = None,
         auth_value: Optional[str] = None,
     ) -> bool:
-        # SSRF-Schutz & DNS-Rebinding Prävention
         safe_url, original_host = get_safe_request_url_and_host(url)
         if not safe_url or not original_host:
             logger.error(f"PSA Dispatch blockiert: URL {url} ist unsicher (SSRF-Prävention).")
@@ -81,10 +80,7 @@ class PSADispatcher:
         payload_bytes = json.dumps(psa_payload).encode('utf-8')
         signature = cls._generate_signature(secret_token, payload_bytes)
 
-        # Der Request wird direkt an die verifizierte IP (safe_url) gesendet
         req = urllib.request.Request(safe_url, data=payload_bytes, method='POST')
-        
-        # Der ursprüngliche Hostname wird im Host-Header mitgegeben
         req.add_header('Host', original_host)
         req.add_header('Content-Type', 'application/json')
         req.add_header('X-Aegis-Signature', signature)
