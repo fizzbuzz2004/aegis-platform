@@ -3,104 +3,209 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aegis Compliance Console</title>
+    <meta name="theme-color" content="#0b1220">
+    <title>Aegis | MSP Compliance Operations</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <style>[x-cloak] { display: none !important; }</style>
+    <style>
+        [x-cloak] { display: none !important; }
+        :root { color-scheme: dark; }
+        body { background: radial-gradient(ellipse at top, #17243a 0, #0b1220 48rem); }
+        .surface { background: rgba(18, 29, 47, .88); }
+        .surface-raised { background: #17243a; }
+        .focus-ring:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+    </style>
 </head>
-<body class="bg-slate-900 text-slate-100 font-sans min-h-screen p-8" x-data="dashboardApp()" x-init="init()">
-    <section x-cloak x-show="!authenticated" class="max-w-md mx-auto mt-16 bg-slate-800 border border-slate-700 rounded-lg p-8 shadow-xl">
-        <h1 class="text-2xl font-bold text-cyan-400 mb-2">AEGIS // Anmeldung</h1>
-        <p class="text-sm text-slate-400 mb-6">Melde dich mit deinem Control-Plane-Administratorkonto an.</p>
-        <form class="space-y-4" @submit.prevent="login">
-            <label class="block text-sm text-slate-300">Benutzername
-                <input x-model="username" autocomplete="username" required class="mt-1 w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white">
-            </label>
-            <label class="block text-sm text-slate-300">Passwort
-                <input x-model="password" type="password" autocomplete="current-password" required class="mt-1 w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white">
-            </label>
-            <label class="block text-sm text-slate-300">MFA-Code, falls aktiviert
-                <input x-model="mfaCode" inputmode="numeric" autocomplete="one-time-code" class="mt-1 w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-white">
-            </label>
-            <p x-show="loginError" x-text="loginError" role="alert" class="text-sm text-rose-400"></p>
-            <button type="submit" :disabled="loading" class="w-full bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 text-white font-semibold rounded px-4 py-2">
-                <span x-text="loading ? 'Anmeldung läuft...' : 'Anmelden'"></span>
-            </button>
-        </form>
+<body class="min-h-screen text-slate-100 antialiased" x-data="dashboardApp()" x-init="init()">
+    <section x-cloak x-show="!authenticated" class="min-h-screen flex items-center justify-center px-4 py-10">
+        <div class="surface w-full max-w-md rounded-2xl border border-slate-700/80 p-8 shadow-2xl shadow-black/30">
+            <div class="mb-8">
+                <p class="text-xs font-semibold uppercase tracking-[.24em] text-cyan-400">Aegis • MSP Operations</p>
+                <h1 class="mt-3 text-2xl font-semibold tracking-tight">Willkommen zurück</h1>
+                <p class="mt-2 text-sm leading-6 text-slate-400">Melde dich an, um den Sicherheits- und Compliance-Status deiner Mandanten zu überwachen.</p>
+            </div>
+            <form class="space-y-4" @submit.prevent="login">
+                <label class="block text-sm font-medium text-slate-300">Benutzername
+                    <input x-model="username" autocomplete="username" required class="focus-ring mt-1.5 w-full rounded-lg border border-slate-600 bg-slate-950/70 px-3.5 py-2.5 text-white">
+                </label>
+                <label class="block text-sm font-medium text-slate-300">Passwort
+                    <input x-model="password" type="password" autocomplete="current-password" required class="focus-ring mt-1.5 w-full rounded-lg border border-slate-600 bg-slate-950/70 px-3.5 py-2.5 text-white">
+                </label>
+                <label class="block text-sm font-medium text-slate-300">MFA-Code <span class="font-normal text-slate-500">(falls aktiviert)</span>
+                    <input x-model="mfaCode" inputmode="numeric" autocomplete="one-time-code" class="focus-ring mt-1.5 w-full rounded-lg border border-slate-600 bg-slate-950/70 px-3.5 py-2.5 text-white">
+                </label>
+                <p x-show="loginError" x-text="loginError" role="alert" class="text-sm text-rose-300"></p>
+                <button type="submit" :disabled="loading" class="focus-ring w-full rounded-lg bg-cyan-600 px-4 py-2.5 font-semibold text-slate-950 transition hover:bg-cyan-500 disabled:cursor-wait disabled:opacity-50">
+                    <span x-text="loading ? 'Anmeldung läuft…' : 'Sicher anmelden'"></span>
+                </button>
+            </form>
+            <p class="mt-6 border-t border-slate-700 pt-4 text-xs text-slate-500">Geschützte Control-Plane-Verbindung • mTLS</p>
+        </div>
     </section>
 
-    <div x-cloak x-show="authenticated" class="max-w-7xl mx-auto">
-        <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
-            <h1 class="text-2xl font-bold tracking-tight text-cyan-400">AEGIS // Security & Compliance Control</h1>
-            <div class="flex gap-4">
-                <select x-model="filterStatus" class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm">
-                    <option value="ALL">Alle Status</option>
+    <main x-cloak x-show="authenticated" class="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+        <header class="mb-8 flex flex-col gap-5 border-b border-slate-700/80 pb-6 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex items-center gap-3">
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 text-sm font-bold text-cyan-300">A</div>
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-[.2em] text-cyan-400">Aegis • Service Provider Console</p>
+                    <h1 class="mt-1 text-xl font-semibold tracking-tight sm:text-2xl">Compliance Operations</h1>
+                </div>
+            </div>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <label class="sr-only" for="tenant-search">Mandanten suchen</label>
+                <input id="tenant-search" type="search" x-model="searchNorm" placeholder="Mandant oder Framework suchen" class="focus-ring rounded-lg border border-slate-700 bg-slate-900/80 px-3.5 py-2 text-sm placeholder:text-slate-500">
+                <select x-model="filterStatus" aria-label="Compliance-Status filtern" class="focus-ring rounded-lg border border-slate-700 bg-slate-900/80 px-3.5 py-2 text-sm">
+                    <option value="ALL">Alle Scores</option>
                     <option value="CRITICAL">Kritisch (&lt;70%)</option>
                     <option value="GOOD">Gut (&ge;90%)</option>
                 </select>
-                <input type="text" x-model="searchNorm" placeholder="Norm filtern (z.B. NIS2, ISO27001)" class="bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm">
-                <button @click="logout" class="border border-slate-600 hover:border-rose-500 rounded px-3 py-1.5 text-sm">Abmelden</button>
+                <button @click="refresh" :disabled="loading" class="focus-ring rounded-lg border border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:opacity-50">Aktualisieren</button>
+                <button @click="logout" class="focus-ring rounded-lg border border-slate-700 px-3.5 py-2 text-sm font-medium text-slate-300 transition hover:border-rose-500 hover:text-rose-300">Abmelden</button>
             </div>
         </header>
 
-        <p x-show="loading" class="text-sm text-slate-400" role="status">Dashboard-Daten werden geladen...</p>
-        <div x-show="dashboardError" class="mb-5 flex flex-wrap justify-between gap-3 border border-rose-800 bg-rose-950/40 rounded p-4" role="alert">
-            <p x-text="dashboardError" class="text-sm text-rose-300"></p>
-            <button @click="refresh" class="text-sm underline">Erneut versuchen</button>
+        <p x-show="loading" class="mb-5 text-sm text-slate-400" role="status">Mandanten- und Agentendaten werden geladen…</p>
+        <div x-show="dashboardError" class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-800/80 bg-rose-950/40 p-4" role="alert">
+            <p x-text="dashboardError" class="text-sm text-rose-200"></p>
+            <button @click="refresh" class="text-sm font-medium text-rose-200 underline underline-offset-4">Erneut versuchen</button>
         </div>
-        <p x-show="!loading && !dashboardError && tenants.length === 0" class="text-sm text-slate-400">Noch keine Mandanten oder Agent-Ergebnisse vorhanden.</p>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <template x-for="tenant in filteredTenants" :key="tenant.id">
-                <div class="bg-slate-800 border border-slate-700 rounded-lg p-6 shadow-xl cursor-pointer hover:border-cyan-500 transition-colors" @click="openDrawer(tenant)">
-                    <div class="flex justify-between items-start mb-4">
-                        <h2 class="text-lg font-semibold text-white" x-text="tenant.name"></h2>
-                        <span class="text-2xl font-bold" :class="tenant.compliance_score >= 90 ? 'text-emerald-400' : (tenant.compliance_score >= 70 ? 'text-amber-400' : 'text-rose-500')" x-text="tenant.compliance_score + '%'"></span>
-                    </div>
-                    <div class="text-xs text-slate-400 space-y-1">
-                        <p><strong>Hosts:</strong> <span x-text="tenant.host_count"></span> active</p>
-                        <p><strong>Normen:</strong> <span x-text="tenant.standards.join(', ') || 'Keine'"></span></p>
-                    </div>
-                </div>
-            </template>
-        </div>
-    </div>
-
-    <!-- Detail Drawer -->
-    <div x-cloak x-show="authenticated && drawerOpen" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end" x-transition.opacity>
-        <div class="w-full max-w-xl bg-slate-800 h-full p-6 overflow-y-auto border-l border-slate-700 shadow-2xl" @click.away="drawerOpen = false">
-            <div class="flex justify-between items-center border-b border-slate-700 pb-4 mb-6">
-                <h3 class="text-xl font-bold text-cyan-400" x-text="selectedTenant?.name"></h3>
-                <button @click="drawerOpen = false" class="text-slate-400 hover:text-white">&times;</button>
+        <section class="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div class="surface rounded-xl border border-slate-700/80 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Mandanten</p>
+                <p class="mt-2 text-2xl font-semibold" x-text="tenants.length"></p>
             </div>
-            
-            <h4 class="text-sm font-bold uppercase text-slate-400 mb-3">Registrierte Hosts & Audit-Detail</h4>
-            <div class="space-y-4">
-                <template x-for="host in selectedTenant?.hosts" :key="host.hostname">
-                    <div class="bg-slate-900 border border-slate-700 rounded p-4">
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="font-mono text-sm text-cyan-300" x-text="host.hostname"></span>
-                            <span class="text-xs text-slate-500" x-text="host.os_info"></span>
+            <div class="surface rounded-xl border border-slate-700/80 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Registrierte Hosts</p>
+                <p class="mt-2 text-2xl font-semibold" x-text="tenants.reduce((sum, tenant) => sum + tenant.host_count, 0)"></p>
+            </div>
+            <div class="surface rounded-xl border border-slate-700/80 p-4">
+                <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Bewertete Checks</p>
+                <p class="mt-2 text-2xl font-semibold" x-text="tenants.reduce((sum, tenant) => sum + (tenant.evaluated_checks || 0), 0)"></p>
+            </div>
+        </section>
+
+        <div class="mb-4 flex items-end justify-between gap-4">
+            <div>
+                <h2 class="text-lg font-semibold">Mandantenübersicht</h2>
+                <p class="mt-1 text-sm text-slate-400">Sicherheitslage und Nachweise aller betreuten Umgebungen.</p>
+            </div>
+            <span class="hidden text-xs text-slate-500 sm:inline" x-text="filteredTenants.length + ' angezeigt'"></span>
+        </div>
+        <p x-show="!loading && !dashboardError && filteredTenants.length === 0" class="surface rounded-xl border border-slate-700 p-6 text-sm text-slate-400">Keine passenden Mandanten gefunden.</p>
+
+        <section class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <template x-for="tenant in filteredTenants" :key="tenant.id">
+                <article class="surface overflow-hidden rounded-2xl border border-slate-700/80 shadow-xl shadow-black/10 transition hover:-translate-y-0.5 hover:border-slate-500">
+                    <div class="h-1" :style="'background-color:' + tenant.brand_color_hex"></div>
+                    <div class="p-5">
+                        <button class="focus-ring mb-5 flex w-full items-center justify-between gap-3 text-left" @click="openDrawer(tenant)">
+                            <span class="flex min-w-0 items-center gap-3">
+                                <img x-show="tenant.logo_url" :src="tenant.logo_url" :alt="tenant.name + ' Logo'" class="h-10 w-10 rounded-lg border border-slate-700 bg-white object-contain p-1">
+                                <span x-show="!tenant.logo_url" class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-900 text-sm font-semibold" :style="'color:' + tenant.brand_color_hex" x-text="tenant.name.slice(0, 1).toUpperCase()"></span>
+                                <span class="min-w-0">
+                                    <span class="block truncate text-base font-semibold text-white" x-text="tenant.name"></span>
+                                    <span class="mt-1 block text-xs text-slate-400" x-text="tenant.host_count + ' Hosts · ' + (tenant.evaluated_checks || 0) + ' bewertete Checks'"></span>
+                                </span>
+                            </span>
+                            <span class="shrink-0 text-right">
+                                <span class="block text-2xl font-semibold tabular-nums" :class="scoreClass(tenant.compliance_score)" x-text="tenant.compliance_score === null ? '—' : tenant.compliance_score + '%'"></span>
+                                <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Compliance</span>
+                            </span>
+                        </button>
+                        <div class="mb-5 flex min-h-6 flex-wrap gap-1.5">
+                            <template x-for="standard in tenant.standards" :key="standard">
+                                <span class="rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[10px] font-medium text-slate-300" x-text="standard"></span>
+                            </template>
+                            <span x-show="!tenant.standards.length" class="text-xs text-slate-500">Noch keine Framework-Referenzen</span>
                         </div>
-                        <div class="space-y-2">
-                            <template x-for="res in host.results" :key="res.module_name + res.timestamp">
-                                <div class="text-xs bg-slate-800 p-2 rounded">
-                                    <div class="flex justify-between text-slate-300 font-semibold mb-1">
-                                        <span x-text="res.module_name"></span>
-                                        <span x-text="res.timestamp"></span>
+                        <div class="flex items-center justify-between border-t border-slate-700/80 pt-4">
+                            <button @click="openDrawer(tenant)" class="focus-ring text-sm font-medium text-cyan-300 hover:text-cyan-200">Details ansehen <span aria-hidden="true">→</span></button>
+                            <button @click="downloadReport('/api/v1/reports/tenant/' + tenant.id + '/pdf')" :disabled="reportBusy === 'tenant-' + tenant.id" class="focus-ring rounded-lg border border-slate-600 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-cyan-500 hover:text-cyan-300 disabled:opacity-50" x-text="reportBusy === 'tenant-' + tenant.id ? 'Export läuft…' : 'Export A4 PDF'"></button>
+                        </div>
+                    </div>
+                </article>
+            </template>
+        </section>
+    </main>
+
+    <div x-cloak x-show="authenticated && drawerOpen" class="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm" x-transition.opacity @keydown.escape.window="drawerOpen = false" @click.self="drawerOpen = false">
+        <section role="dialog" aria-modal="true" aria-labelledby="drawer-title" class="h-full w-full max-w-3xl overflow-y-auto border-l border-slate-700 bg-slate-950 shadow-2xl" @click.stop>
+            <header class="sticky top-0 z-10 border-b border-slate-700 bg-slate-950/95 px-5 py-4 backdrop-blur sm:px-7">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="flex min-w-0 items-center gap-3">
+                        <img x-show="selectedTenant?.logo_url" :src="selectedTenant?.logo_url" :alt="selectedTenant?.name + ' Logo'" class="h-10 w-10 rounded-lg bg-white object-contain p-1">
+                        <div class="min-w-0">
+                            <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Mandant</p>
+                            <h2 id="drawer-title" class="truncate text-lg font-semibold" x-text="selectedTenant?.name"></h2>
+                        </div>
+                    </div>
+                    <button @click="drawerOpen = false" aria-label="Details schließen" class="focus-ring rounded-lg border border-slate-700 px-3 py-2 text-slate-300 hover:text-white">Schließen</button>
+                </div>
+                <div class="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <input type="search" x-model="hostSearch" aria-label="Hosts und Findings suchen" placeholder="Host, Modul oder Finding suchen" class="focus-ring min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm placeholder:text-slate-500">
+                    <select x-model="findingFilter" aria-label="Finding-Status filtern" class="focus-ring rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm">
+                        <option value="ALL">Alle Findings</option>
+                        <option value="PASS">PASS</option>
+                        <option value="WARN">WARN</option>
+                        <option value="FAIL">FAIL</option>
+                        <option value="INFO">INFO</option>
+                    </select>
+                    <button @click="downloadReport('/api/v1/reports/tenant/' + selectedTenant.id + '/pdf')" :disabled="reportBusy === 'drawer-tenant'" class="focus-ring rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:opacity-50" x-text="reportBusy === 'drawer-tenant' ? 'Export läuft…' : 'Mandantenbericht PDF'"></button>
+                </div>
+            </header>
+
+            <div class="space-y-4 p-5 sm:p-7">
+                <template x-for="host in filteredHosts" :key="host.hostname">
+                    <article class="overflow-hidden rounded-xl border border-slate-700 bg-slate-900/80">
+                        <div class="flex flex-col gap-3 border-b border-slate-700/80 p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div class="flex min-w-0 items-center gap-3">
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-[10px] font-bold text-cyan-300" x-text="osLabel(host.os_info).short"></span>
+                                <div class="min-w-0">
+                                    <h3 class="truncate font-mono text-sm font-semibold text-white" x-text="host.hostname"></h3>
+                                    <p class="mt-1 truncate text-xs text-slate-400" x-text="osLabel(host.os_info).label + ' · ' + host.os_info"></p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3 sm:justify-end">
+                                <div class="text-right">
+                                    <p class="text-lg font-semibold tabular-nums" :class="host.compliance_score === null ? 'text-slate-500' : scoreClass(host.compliance_score)" x-text="host.compliance_score === null ? '—' : host.compliance_score + '%'"></p>
+                                    <p class="text-[10px] uppercase tracking-wider text-slate-500" x-text="host.last_checkin ? 'Check-in ' + host.last_checkin : 'Noch kein Check-in'"></p>
+                                </div>
+                                <button @click="downloadReport('/api/v1/reports/tenant/' + selectedTenant.id + '/host/' + encodeURIComponent(host.hostname) + '/pdf')" :disabled="reportBusy === 'host-' + host.hostname" class="focus-ring rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-cyan-500 hover:text-cyan-300 disabled:opacity-50" x-text="reportBusy === 'host-' + host.hostname ? 'Export…' : 'Host PDF'"></button>
+                            </div>
+                        </div>
+                        <div class="p-4">
+                            <template x-for="result in host.results" :key="result.module_name + result.timestamp">
+                                <section class="mb-3 last:mb-0">
+                                    <div class="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                                        <h4 class="text-xs font-semibold text-slate-200" x-text="result.module_name"></h4>
+                                        <time class="text-[10px] text-slate-500" x-text="result.timestamp"></time>
                                     </div>
-                                    <template x-for="(finding, index) in res.findings" :key="finding.code + index">
-                                        <div class="flex justify-between items-center py-0.5 gap-3">
-                                            <span class="text-slate-400" x-text="finding.message"></span>
-                                            <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold" :class="finding.status === 'PASS' ? 'bg-emerald-950 text-emerald-400' : (finding.status === 'WARN' || finding.status === 'INFO' ? 'bg-amber-950 text-amber-300' : 'bg-rose-950 text-rose-400')" x-text="finding.status"></span>
+                                    <template x-for="(finding, index) in result.findings" :key="finding.code + index">
+                                        <div x-show="findingMatches(host, result, finding)" class="mb-1.5 flex items-start justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
+                                            <div class="min-w-0">
+                                                <p class="break-words text-xs leading-5 text-slate-300" x-text="finding.message || finding.code"></p>
+                                                <p x-show="finding.compliance?.length" class="mt-1 text-[10px] text-slate-500" x-text="(finding.compliance || []).join(' · ')"></p>
+                                            </div>
+                                            <span class="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide" :class="statusClass(finding.status)" x-text="finding.status || 'UNKNOWN'"></span>
                                         </div>
                                     </template>
-                                </div>
+                                </section>
                             </template>
+                            <p x-show="!host.results.length" class="text-xs text-slate-500">Für diesen Host liegen noch keine Prüfergebnisse vor.</p>
                         </div>
-                    </div>
+                    </article>
                 </template>
+                <p x-show="filteredHosts.length === 0" class="rounded-xl border border-slate-700 p-5 text-sm text-slate-400">Keine Hosts oder Findings entsprechen dem Filter.</p>
             </div>
+        </section>
+    </div>
+
+    <div x-cloak x-show="reportError" class="fixed bottom-4 right-4 z-[60] max-w-md rounded-xl border border-rose-700 bg-rose-950 p-4 shadow-xl" role="alert">
+        <div class="flex items-start justify-between gap-4">
+            <p class="text-sm text-rose-100" x-text="reportError"></p>
+            <button @click="reportError = ''" aria-label="Meldung schließen" class="text-rose-200">×</button>
         </div>
     </div>
 
@@ -113,10 +218,14 @@
                 mfaCode: '',
                 loginError: '',
                 dashboardError: '',
+                reportError: '',
+                reportBusy: '',
                 loading: false,
                 authenticated: false,
                 filterStatus: 'ALL',
                 searchNorm: '',
+                hostSearch: '',
+                findingFilter: 'ALL',
                 drawerOpen: false,
                 selectedTenant: null,
                 async init() {
@@ -174,6 +283,38 @@
                         this.loading = false;
                     }
                 },
+                async downloadReport(path) {
+                    const token = localStorage.getItem('aegis_admin_token');
+                    if (!token) {
+                        this.reportError = 'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.';
+                        return;
+                    }
+                    this.reportBusy = path.includes('/host/') ? 'host-' + decodeURIComponent(path.split('/host/')[1].split('/')[0]) :
+                        (this.drawerOpen ? 'drawer-tenant' : 'tenant-' + path.split('/')[5]);
+                    this.reportError = '';
+                    try {
+                        const response = await fetch(path, { headers: { 'Authorization': `Bearer ${token}` } });
+                        if (!response.ok) {
+                            const body = await response.json().catch(() => ({}));
+                            throw new Error(body.detail || `PDF-Export fehlgeschlagen (HTTP ${response.status}).`);
+                        }
+                        const blob = await response.blob();
+                        const objectUrl = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = objectUrl;
+                        const disposition = response.headers.get('Content-Disposition') || '';
+                        const filename = disposition.match(/filename="([^"]+)"/i)?.[1] || 'Compliance_Report_A4.pdf';
+                        link.download = filename;
+                        document.body.appendChild(link);
+                        link.click();
+                        link.remove();
+                        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+                    } catch (error) {
+                        this.reportError = error.message || 'PDF konnte nicht heruntergeladen werden.';
+                    } finally {
+                        this.reportBusy = '';
+                    }
+                },
                 refresh() {
                     const token = localStorage.getItem('aegis_admin_token');
                     if (token) this.loadDashboard(token);
@@ -185,15 +326,60 @@
                     this.drawerOpen = false;
                 },
                 get filteredTenants() {
-                    return this.tenants.filter(t => {
-                        const matchStatus = this.filterStatus === 'ALL' || (this.filterStatus === 'CRITICAL' && t.compliance_score < 70) || (this.filterStatus === 'GOOD' && t.compliance_score >= 90);
-                        const matchNorm = !this.searchNorm || t.standards.some(s => s.toLowerCase().includes(this.searchNorm.toLowerCase()));
-                        return matchStatus && matchNorm;
+                    return this.tenants.filter(tenant => {
+                        const matchStatus = this.filterStatus === 'ALL' ||
+                            (this.filterStatus === 'CRITICAL' && tenant.compliance_score < 70) ||
+                            (this.filterStatus === 'GOOD' && tenant.compliance_score >= 90);
+                        const query = this.searchNorm.trim().toLowerCase();
+                        const matchSearch = !query || tenant.name.toLowerCase().includes(query) ||
+                            (tenant.standards || []).some(standard => standard.toLowerCase().includes(query));
+                        return matchStatus && matchSearch;
+                    });
+                },
+                get filteredHosts() {
+                    if (!this.selectedTenant) return [];
+                    const query = this.hostSearch.trim().toLowerCase();
+                    return (this.selectedTenant.hosts || []).filter(host => {
+                        if (!query) return true;
+                        const hostMatches = host.hostname.toLowerCase().includes(query) ||
+                            (host.os_info || '').toLowerCase().includes(query);
+                        return hostMatches || (host.results || []).some(result =>
+                            result.module_name.toLowerCase().includes(query) ||
+                            (result.findings || []).some(finding =>
+                                `${finding.code || ''} ${finding.message || ''}`.toLowerCase().includes(query)));
                     });
                 },
                 openDrawer(tenant) {
                     this.selectedTenant = tenant;
+                    this.hostSearch = '';
+                    this.findingFilter = 'ALL';
                     this.drawerOpen = true;
+                },
+                findingMatches(host, result, finding) {
+                    const statusMatches = this.findingFilter === 'ALL' ||
+                        String(finding.status || '').toUpperCase() === this.findingFilter;
+                    const query = this.hostSearch.trim().toLowerCase();
+                    const textMatches = !query ||
+                        `${host.hostname} ${host.os_info} ${result.module_name} ${finding.code || ''} ${finding.message || ''}`.toLowerCase().includes(query);
+                    return statusMatches && textMatches;
+                },
+                scoreClass(score) {
+                    if (score === null || score === undefined) return 'text-slate-500';
+                    return score >= 90 ? 'text-emerald-300' : (score >= 70 ? 'text-amber-300' : 'text-rose-300');
+                },
+                statusClass(status) {
+                    const value = String(status || '').toUpperCase();
+                    if (value === 'PASS') return 'bg-emerald-400/10 text-emerald-300';
+                    if (value === 'WARN' || value === 'INFO') return 'bg-amber-400/10 text-amber-200';
+                    if (value === 'FAIL') return 'bg-rose-400/10 text-rose-300';
+                    return 'bg-slate-700 text-slate-300';
+                },
+                osLabel(osInfo) {
+                    const value = String(osInfo || '').toLowerCase();
+                    if (value.includes('windows')) return { short: 'WIN', label: 'Windows 11' };
+                    if (value.includes('linux') || value.includes('ubuntu')) return { short: 'LIN', label: 'Ubuntu / Linux' };
+                    if (value.includes('darwin') || value.includes('mac')) return { short: 'MAC', label: 'macOS' };
+                    return { short: 'VM', label: 'Unbekanntes Betriebssystem' };
                 }
             }
         }

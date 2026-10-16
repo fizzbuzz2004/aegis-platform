@@ -103,9 +103,16 @@ def test_agent_registration_results_reach_authenticated_dashboard(monkeypatch):
         assert dashboard.status_code == 200, dashboard.text
         tenant_data = dashboard.json()["tenants"][0]
         assert tenant_data["host_count"] == 1
+        assert tenant_data["compliance_score"] == 100
+        assert tenant_data["evaluated_checks"] == 1
         result = tenant_data["hosts"][0]["results"][0]
         assert result["module_name"] == "firewall_status"
         assert result["findings"][0]["code"] == "FIREWALL_ACTIVE"
+        host_data = tenant_data["hosts"][0]
+        assert host_data["compliance_score"] == 100
+        assert host_data["evaluated_checks"] == 1
+        assert host_data["is_active"] is True
+        assert host_data["last_checkin"]
     finally:
         if previous_db_override is None:
             app.dependency_overrides.pop(get_db, None)

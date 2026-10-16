@@ -128,6 +128,12 @@ docker compose ps
 docker compose logs --tail 50 control-plane
 ```
 
+From the Dashboard, use **Export A4 PDF** on a tenant card for its latest
+tenant-wide compliance snapshot, or open **Details ansehen** and export an
+individual host report. Both downloads require the authenticated dashboard
+session and include tenant branding, findings, framework mapping, and the
+agent-reported WORM audit status.
+
 Stop the test and preserve its database with `docker compose down`. To erase
 the test database and start over, use `docker compose down -v`.
 
