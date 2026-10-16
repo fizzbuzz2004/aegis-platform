@@ -62,7 +62,7 @@ if (-not $BundlePath) {
     $RemoteArchiveName = "aegis-windows-bundle-$([guid]::NewGuid().ToString('N')).tar.gz"
     $RemoteArchivePath = "/tmp/$RemoteArchiveName"
     $Target = "$ControlPlaneSSHUser@$ControlPlaneSSHHost"
-    $StageCommand = "sudo test -s '$RemoteBundlePath/control-plane-ip.txt' && sudo test -s '$RemoteBundlePath/windows-agent/client.p12' && umask 077 && : > '$RemoteArchivePath' && sudo tar -czf '$RemoteArchivePath' -C '$RemoteBundlePath' ."
+    $StageCommand = "sudo test -s '$RemoteBundlePath/control-plane-ip.txt' && sudo test -s '$RemoteBundlePath/windows-agent/client.p12' && sudo rm -f '$RemoteArchivePath' && sudo tar -czf '$RemoteArchivePath' -C '$RemoteBundlePath' . && sudo chown '$ControlPlaneSSHUser' '$RemoteArchivePath' && chmod 600 '$RemoteArchivePath'"
     $TransferDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "aegis-agent-$([guid]::NewGuid().ToString('N'))"
     $LocalArchivePath = Join-Path $TransferDirectory $RemoteArchiveName
     $BundlePath = Join-Path $TransferDirectory "bundle"
