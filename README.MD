@@ -1,6 +1,6 @@
-<p style="text-align: center;">
-  <img src="assets/Aegis-Logo.png" alt="Aegis Logo" width="400"/>
-</p>
+<div align="center">
+  <img src="assets/Aegis-Logo.png" alt="Aegis Logo" width="400">
+</div>
 # Aegis VirtualBox test
 
 This quick setup runs the control plane on one Ubuntu VM and an agent on each
