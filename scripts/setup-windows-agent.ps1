@@ -13,7 +13,7 @@ trap {
     if ($TransferDirectory -and (Test-Path -LiteralPath $TransferDirectory)) {
         Remove-Item -LiteralPath $TransferDirectory -Recurse -Force -ErrorAction SilentlyContinue
     }
-    throw
+    throw $_
 }
 
 $CurrentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -159,7 +159,6 @@ try {
     $RootStore.Close()
 }
 
-$EmptyPassword = ConvertTo-SecureString "" -AsPlainText -Force
 $ClientCertificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
     (Join-Path $AgentBundle "client.p12"),
     "",
