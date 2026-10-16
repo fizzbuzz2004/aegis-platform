@@ -86,8 +86,17 @@ installed for the current user so the browser can access the dashboard.
 Open `https://192.168.1.50:8000/api/v1/dashboard/ui` from Windows, replace the
 example IP, select the Windows client certificate if asked, and sign in as
 `admin` using the password printed by the control-plane script (the default
-test password is `AegisLab2026!`). Both agents should report `[PUSH OK]` in
-their logs.
+test password is `AegisLab2026!`). The browser must present a client
+certificate because the control plane requires mTLS for every HTTPS
+connection. The Windows-agent setup imports that certificate only into the
+current user's certificate store on the Windows agent VM. If you browse from
+the Windows host or another machine, import `windows-agent/ca.crt` from the
+host's `aegis-vbox` shared-folder directory into that browser user's Trusted
+Root Certification Authorities store, and import
+`windows-agent/client.p12` into that user's Personal store. The PFX has an
+empty password. It contains a private key; only import it on a trusted
+machine in this isolated lab. Both agents should report `[PUSH OK]` in their
+logs.
 
 On the control-plane VM:
 
