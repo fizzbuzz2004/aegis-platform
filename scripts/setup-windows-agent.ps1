@@ -159,6 +159,7 @@ try {
     $RootStore.Close()
 }
 
+$EmptyPassword = [System.Security.SecureString]::new()
 $ClientCertificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
     (Join-Path $AgentBundle "client.p12"),
     "",
@@ -183,6 +184,7 @@ try {
     $ClientCertificate.Dispose()
 }
 
+Add-Type -AssemblyName System.Net.Http
 $Handler = [System.Net.Http.HttpClientHandler]::new()
 $ProbeCertificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
     (Join-Path $AgentBundle "client.p12"),
