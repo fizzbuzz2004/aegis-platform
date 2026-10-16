@@ -1,6 +1,19 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Aegis Logo" width="400">
+  <img src="assets/Aegis-Logo.png" alt="Aegis Logo" width="350">
 </p>
+
+<p align="center">
+  <b>Enterprise-Grade Security & Compliance Automation for DACH Systemhäuser</b><br>
+  <i>NIS2 • ISO 27001 • Cross-Platform Audit Logs • mTLS Control Plane</i>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/Compliance-NIS2%20%7C%20ISO27001-0052CC?style=for-the-badge" alt="Compliance">
+</p>
+
+---
 
 # Aegis VirtualBox test
 
