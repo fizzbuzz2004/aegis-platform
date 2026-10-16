@@ -1,15 +1,94 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$BundlePath
+    [string]$BundlePath,
+    [string]$ControlPlaneSSHHost,
+    [string]$ControlPlaneSSHUser,
+    [string]$RemoteBundlePath
 )
 
 $ErrorActionPreference = "Stop"
+$TransferDirectory = $null
+
+trap {
+    if ($TransferDirectory -and (Test-Path -LiteralPath $TransferDirectory)) {
+        Remove-Item -LiteralPath $TransferDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    throw
+}
 
 $CurrentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $PrincipalIdentity = [Security.Principal.WindowsPrincipal]::new($CurrentIdentity)
 if (-not $PrincipalIdentity.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Run this script from PowerShell as Administrator."
+}
+
+if (-not $BundlePath) {
+    if (-not $ControlPlaneSSHHost) {
+        $ControlPlaneSSHHost = Read-Host "Control-plane IPv4 address (SSH must be enabled)"
+    }
+    if (-not $ControlPlaneSSHUser) {
+        $ControlPlaneSSHUser = Read-Host "Ubuntu SSH username [vboxuser]"
+        if (-not $ControlPlaneSSHUser) {
+            $ControlPlaneSSHUser = "vboxuser"
+        }
+    }
+    if (-not $RemoteBundlePath) {
+        $RemoteBundlePath = Read-Host "Bundle directory on Ubuntu [/media/sf_aegis/aegis-vbox]"
+        if (-not $RemoteBundlePath) {
+            $RemoteBundlePath = "/media/sf_aegis/aegis-vbox"
+        }
+    }
+
+    $ParsedSSHAddress = $null
+    if (-not [System.Net.IPAddress]::TryParse($ControlPlaneSSHHost, [ref]$ParsedSSHAddress) -or
+        $ParsedSSHAddress.AddressFamily -ne [System.Net.Sockets.AddressFamily]::InterNetwork) {
+        throw "Enter the control-plane VM's IPv4 address for SSH."
+    }
+    if ($ControlPlaneSSHUser -notmatch '^[A-Za-z_][A-Za-z0-9_.-]*$') {
+        throw "Invalid Ubuntu SSH username."
+    }
+    if ($RemoteBundlePath -notmatch '^/[A-Za-z0-9_./-]+$' -or
+        $RemoteBundlePath -match '(^|/)\.\.?(/|$)') {
+        throw "Remote bundle path must be an absolute path without spaces or shell metacharacters."
+    }
+
+    $SshCommand = (Get-Command ssh.exe -ErrorAction SilentlyContinue).Source
+    $ScpCommand = (Get-Command scp.exe -ErrorAction SilentlyContinue).Source
+    $TarCommand = (Get-Command tar.exe -ErrorAction SilentlyContinue).Source
+    if (-not $SshCommand -or -not $ScpCommand -or -not $TarCommand) {
+        throw "Windows OpenSSH Client (ssh/scp) and tar.exe are required. Enable the OpenSSH Client optional feature, then retry."
+    }
+
+    $RemoteArchiveName = "aegis-windows-bundle-$([guid]::NewGuid().ToString('N')).tar.gz"
+    $RemoteArchivePath = "/tmp/$RemoteArchiveName"
+    $Target = "$ControlPlaneSSHUser@$ControlPlaneSSHHost"
+    $StageCommand = "sudo test -s '$RemoteBundlePath/control-plane-ip.txt' && sudo test -s '$RemoteBundlePath/windows-agent/client.p12' && umask 077 && : > '$RemoteArchivePath' && sudo tar -czf '$RemoteArchivePath' -C '$RemoteBundlePath' ."
+    $TransferDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "aegis-agent-$([guid]::NewGuid().ToString('N'))"
+    $LocalArchivePath = Join-Path $TransferDirectory $RemoteArchiveName
+    $BundlePath = Join-Path $TransferDirectory "bundle"
+
+    New-Item -ItemType Directory -Path $TransferDirectory | Out-Null
+    try {
+        Write-Host "Preparing a temporary bundle archive on the control-plane VM."
+        Write-Host "SSH may ask for your Ubuntu password and sudo password."
+        & $SshCommand -t $Target $StageCommand
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not prepare the bundle over SSH. Check SSH access, the sudo password, and the remote bundle path."
+        }
+
+        & $ScpCommand "${Target}:$RemoteArchivePath" $LocalArchivePath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not download the temporary bundle archive over SCP."
+        }
+
+        New-Item -ItemType Directory -Path $BundlePath | Out-Null
+        & $TarCommand -xzf $LocalArchivePath -C $BundlePath
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not extract the downloaded bundle."
+        }
+    } finally {
+        & $SshCommand $Target "rm -f '$RemoteArchivePath'" 2>$null
+    }
 }
 
 if (-not (Test-Path -LiteralPath $BundlePath -PathType Container)) {
@@ -168,3 +247,7 @@ Write-Host "Agent log: $LogPath"
 Write-Host "Dashboard: $ServerUrl/api/v1/dashboard/ui"
 Write-Host "Sign in as admin; use ADMIN_INITIAL_PASSWORD printed by setup-control-plane.sh."
 Write-Host "The Windows client certificate was installed for this Windows user for dashboard access."
+
+if ($TransferDirectory -and (Test-Path -LiteralPath $TransferDirectory)) {
+    Remove-Item -LiteralPath $TransferDirectory -Recurse -Force
+}

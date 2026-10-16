@@ -69,11 +69,34 @@ sudo journalctl -u aegis-agent -f
 
 ## Windows 11 agent VM
 
-Clone the repository and open PowerShell **as Administrator**. The shared
-folder is normally `\\VBOXSVR\aegis`:
+Clone the repository and open PowerShell **as Administrator**. To fetch the
+Windows bundle directly from the control-plane VM over SSH (no VirtualBox
+shared-folder transfer is needed), enable OpenSSH Server on the Ubuntu VM:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y openssh-server
+sudo systemctl enable --now ssh
+```
+
+Then run:
 
 ```powershell
-.\scripts\setup-windows-agent.ps1 -BundlePath "\\VBOXSVR\aegis\aegis-vbox"
+.\scripts\setup-windows-agent.ps1
+```
+
+The script asks for the control-plane IPv4 address, Ubuntu SSH username, and
+bundle directory. It defaults to `vboxuser` and
+`/media/sf_aegis/aegis-vbox`, matching the sample setup command below. SSH
+prompts for login and sudo authentication as needed. The bundle is transferred
+through a temporary archive; the Windows-side temporary copy is removed after
+installation, and the temporary archive is removed from Ubuntu.
+
+Alternatively, if the bundle is available in a shared folder, provide its
+parent directory explicitly:
+
+```powershell
+.\scripts\setup-windows-agent.ps1 -BundlePath "Z:\aegis-vbox"
 ```
 
 The script installs and registers the agent, imports the test certificates,
