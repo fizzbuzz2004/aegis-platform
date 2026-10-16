@@ -184,43 +184,6 @@ try {
     $ClientCertificate.Dispose()
 }
 
-Add-Type -AssemblyName System.Net.Http
-$Handler = [System.Net.Http.HttpClientHandler]::new()
-$ProbeCertificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
-    (Join-Path $AgentBundle "client.p12"),
-    "",
-    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
-)
-[void]$Handler.ClientCertificates.Add($ProbeCertificate)
-$HttpClient = [System.Net.Http.HttpClient]::new($Handler)
-$Reachable = $false
-$LastConnectionError = "No successful HTTPS response."
-try {
-    for ($attempt = 0; $attempt -lt 60; $attempt++) {
-        try {
-            $Response = $HttpClient.GetAsync("$ServerUrl/docs").GetAwaiter().GetResult()
-            if ($Response.IsSuccessStatusCode) {
-                $Reachable = $true
-                $Response.Dispose()
-                break
-            }
-            $LastConnectionError = "HTTP $([int]$Response.StatusCode)"
-            $Response.Dispose()
-        } catch {
-            $LastConnectionError = $_.Exception.Message
-        }
-        if (-not $Reachable -and $attempt -lt 59) {
-            Start-Sleep -Seconds 2
-        }
-    }
-} finally {
-    $HttpClient.Dispose()
-    $ProbeCertificate.Dispose()
-}
-if (-not $Reachable) {
-    throw "Cannot reach $ServerUrl with the shared test certificate ($LastConnectionError). Check the control plane and port 8000, then retry."
-}
-
 & $AgentPath -server $ServerUrl -register enroll_pilot_2026 -once -debug
 if ($LASTEXITCODE -ne 0) {
     throw "Agent registration failed with exit code $LASTEXITCODE."
