@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="Aegis-Logo.png" alt="Aegis Logo" width="400">
+  <img src="/assets/Aegis-Logo.png" alt="Aegis Logo" width="400">
 </div>
 # Aegis VirtualBox test
 
