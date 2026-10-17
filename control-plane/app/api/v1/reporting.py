@@ -8,7 +8,7 @@ from typing import Dict, Optional
 from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
@@ -29,7 +29,7 @@ router = APIRouter()
 MAX_LOGO_BYTES = 2 * 1024 * 1024
 DEFAULT_BRAND_COLOR = "#0f766e"
 
-# Thread-sicherer In-Memory Job-Store für asynchrone Report-Jobs (alternativ in DB abbildbar)
+# Thread-sicherer In-Memory Job-Store für asynchrone Report-Jobs
 report_jobs_store: Dict[str, dict] = {}
 
 
@@ -276,7 +276,6 @@ def _pdf_report(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleRes
         host_results = sorted(results_by_host.get(hostname, []), key=lambda item: item.module_name)
         if not host_results:
             continue
-        story.append(Paragraph(f"{escape(hostname)} — {escape(known_hosts[hostname].os_info if hostname in known_hosts else 'Host nicht registriert')}", styles["Heading3"]))
         rows = [["Modul", "Finding / Nachweis", "Status", "Severity", "Framework-Referenzen"]]
         for result in host_results:
             findings = result_findings[(result.hostname, result.module_name)]

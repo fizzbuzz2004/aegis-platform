@@ -15,15 +15,18 @@ import (
 const windowsUpdateScript = `param([string]$ExecutablePath, [string]$StagedPath, [int]$ParentProcessId, [string]$ArgumentsBase64)
 $ErrorActionPreference = "Stop"
 try {
+    # Warten, bis der alte Prozess komplett freigegeben ist
     Wait-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+
     $BackupPath = "$ExecutablePath.old"
     if (Test-Path -LiteralPath $BackupPath) {
-        Remove-Item -LiteralPath $BackupPath -Force
+        Remove-Item -LiteralPath $BackupPath -Force -ErrorAction SilentlyContinue
     }
 
-    # Robuste Retry-Schleife mit Backoff bei ERROR_ACCESS_DENIED
-    $maxRetries = 3
-    $delaySeconds = 2
+    # Robuste Retry-Schleife mit Backoff bei File-Locks / Antivirus-Scans
+    $maxRetries = 5
+    $delaySeconds = 3
     $moved = $false
 
     for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
@@ -32,14 +35,10 @@ try {
             $moved = $true
             break
         } catch {
-            $isAccessDenied = $_.Exception.Message -like "*Access is denied*" -or $_.FullyQualifiedErrorId -like "*UnauthorizedAccess*"
-            if ($isAccessDenied -and $attempt -lt $maxRetries) {
-                Start-Sleep -Seconds ($delaySeconds * $attempt)
-            } else {
-                if ($attempt -eq $maxRetries) { throw }
-            }
+            Start-Sleep -Seconds ($delaySeconds * $attempt)
         }
     }
+    if (-not $moved) { throw "Konnte alte Binärdatei aufgrund von File-Locks nicht verschieben." }
 
     try {
         Move-Item -LiteralPath $StagedPath -Destination $ExecutablePath -Force
@@ -47,6 +46,7 @@ try {
         Move-Item -LiteralPath $BackupPath -Destination $ExecutablePath -Force
         throw
     }
+
     $ArgumentsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ArgumentsBase64))
     $Arguments = @($ArgumentsJson | ConvertFrom-Json)
     Start-Process -FilePath $ExecutablePath -ArgumentList $Arguments -WorkingDirectory (Split-Path -Parent $ExecutablePath)

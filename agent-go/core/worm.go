@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -98,17 +99,41 @@ func (w *WormLogger) Log(event string) (string, error) {
 
 	entry := fmt.Sprintf("%s|%s|%s|%s\n", currentHash, prevHash, utcTs, event)
 
+	// Unter Linux das Append-Only-Attribut vor dem Öffnen temporär aufheben
+	if runtime.GOOS == "linux" {
+		_ = exec.Command("chattr", "-a", w.filePath).Run()
+	}
+
 	file, err := os.OpenFile(w.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
+		if runtime.GOOS == "linux" {
+			_ = exec.Command("chattr", "+a", w.filePath).Run()
+		}
 		return "", err
 	}
-	defer file.Close()
 
 	_ = lockFile(file)
-	defer unlockFile(file)
 
 	if _, err := file.WriteString(entry); err != nil {
+		unlockFile(file)
+		_ = file.Close()
+		if runtime.GOOS == "linux" {
+			_ = exec.Command("chattr", "+a", w.filePath).Run()
+		}
 		return "", err
+	}
+
+	unlockFile(file)
+	if err := file.Close(); err != nil {
+		if runtime.GOOS == "linux" {
+			_ = exec.Command("chattr", "+a", w.filePath).Run()
+		}
+		return "", err
+	}
+
+	// Setzen des Linux Append-Only-Attributs (+a) nach dem erfolgreichen Schreiben zur Manipulationseinschränkung
+	if runtime.GOOS == "linux" {
+		_ = exec.Command("chattr", "+a", w.filePath).Run()
 	}
 
 	return currentHash, nil
