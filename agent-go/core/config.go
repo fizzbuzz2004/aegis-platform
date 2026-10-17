@@ -13,6 +13,7 @@ type AgentConfig struct {
 	ServerURL              string `json:"server_url,omitempty"`
 	WormSecret             string `json:"worm_secret"`
 	AutoRemediationEnabled bool   `json:"auto_remediation_enabled"`
+	AutoRemediationMode    string `json:"auto_remediation_mode"` // "audit" oder "enforce"
 }
 
 func AgentConfigPath() string {

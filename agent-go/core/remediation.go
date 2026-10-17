@@ -3,14 +3,21 @@ package core
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"runtime"
 )
 
 // AttemptRemediation prüft, ob automatische Remediation erlaubt ist und führt diese aus.
-func AttemptRemediation(ctx context.Context, autoRemediate bool, moduleName string, code string) (bool, string, error) {
+func AttemptRemediation(ctx context.Context, autoRemediate bool, remediationMode string, moduleName string, code string) (bool, string, error) {
 	if !autoRemediate {
 		return false, "Remediation im Dry-Run-Modus (nur Logging, Auto-Remediation deaktiviert)", nil
+	}
+
+	// Risiko 1: Strikte Unterscheidung des Auto-Remediation-Modus (audit vs enforce)
+	if remediationMode == "audit" {
+		log.Printf("[REMEDIATION AUDIT] Audit-Modus aktiv für Modul %s / Code %s. Keine automatischen Änderungen.", moduleName, code)
+		return false, fmt.Sprintf("Audit-Modus aktiv: Drift für %s (%s) erkannt, aber keine automatische Durchsetzung erfolgt.", moduleName, code), nil
 	}
 
 	switch moduleName {
