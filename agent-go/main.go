@@ -206,7 +206,7 @@ func main() {
 					_, _ = worm.Log(fmt.Sprintf("AUDIT [%s] %s: %s", modName, f.Status, f.Message))
 
 					if f.Status == "FAIL" {
-						success, remediationMsg, remErr := core.AttemptRemediation(ctx, modName, f.Code)
+						success, remediationMsg, remErr := core.AttemptRemediation(ctx, config.AutoRemediationEnabled, modName, f.Code)
 						if remErr == nil && success {
 							log.Printf("[REMEDIATION SUCCESS] %s (%s): %s", modName, f.Code, remediationMsg)
 							_, _ = worm.Log(fmt.Sprintf("REMEDIATION [%s] SUCCESS: %s (Fix für Code: %s)", modName, remediationMsg, f.Code))
