@@ -40,7 +40,6 @@ func LoadAgentConfig() (AgentConfig, error) {
 func loadAgentConfig(path string) (AgentConfig, error) {
 	var config AgentConfig
 
-	// Standardmäßig im sicheren Dry-Run-Modus starten, falls die Konfig noch nicht existiert
 	config.AutoRemediationEnabled = false
 
 	data, err := os.ReadFile(path)
