@@ -9,9 +9,10 @@ import (
 )
 
 type AgentConfig struct {
-	HostToken  string `json:"host_token"`
-	ServerURL  string `json:"server_url,omitempty"`
-	WormSecret string `json:"worm_secret"`
+	HostToken              string `json:"host_token"`
+	ServerURL              string `json:"server_url,omitempty"`
+	WormSecret             string `json:"worm_secret"`
+	AutoRemediationEnabled bool   `json:"auto_remediation_enabled"`
 }
 
 func AgentConfigPath() string {
@@ -38,6 +39,10 @@ func LoadAgentConfig() (AgentConfig, error) {
 
 func loadAgentConfig(path string) (AgentConfig, error) {
 	var config AgentConfig
+
+	// Standardmäßig im sicheren Dry-Run-Modus starten, falls die Konfig noch nicht existiert
+	config.AutoRemediationEnabled = false
+
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return config, nil

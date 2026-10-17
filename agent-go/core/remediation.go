@@ -7,9 +7,12 @@ import (
 	"runtime"
 )
 
-// AttemptRemediation prüft, ob für ein fehlgeschlagenes Finding (FAIL) ein automatischer
-// Reparatur-Skript- oder API-Aufruf existiert, und führt diesen aus.
-func AttemptRemediation(ctx context.Context, moduleName string, code string) (bool, string, error) {
+// AttemptRemediation prüft, ob automatische Remediation erlaubt ist und führt diese aus.
+func AttemptRemediation(ctx context.Context, autoRemediate bool, moduleName string, code string) (bool, string, error) {
+	if !autoRemediate {
+		return false, "Remediation im Dry-Run-Modus (nur Logging, Auto-Remediation deaktiviert)", nil
+	}
+
 	switch moduleName {
 	case "firewall_status":
 		if code == "FIREWALL_NOT_ACTIVE" {
