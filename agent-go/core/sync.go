@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/aegis-platform/agent-go/probes"
@@ -30,6 +31,8 @@ type SyncClient struct {
 	QueueDB    string
 	HTTPClient *http.Client
 	Debug      bool
+	db         *sql.DB
+	dbMu       sync.Mutex
 }
 
 type ResultPayload struct {
@@ -54,12 +57,22 @@ func NewSyncClient(serverURL, hostToken, hostname, osInfo string) (*SyncClient, 
 		return nil, fmt.Errorf("Konnte Verzeichnis nicht erstellen: %w", err)
 	}
 
+	db, err := sql.Open("sqlite", queuePath)
+	if err != nil {
+		return nil, fmt.Errorf("DB Open failed: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=WAL;"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set WAL mode: %w", err)
+	}
+
 	client := &SyncClient{
 		ServerURL: serverURL,
 		HostToken: hostToken,
 		Hostname:  hostname,
 		OSInfo:    osInfo,
 		QueueDB:   queuePath,
+		db:        db,
 		HTTPClient: &http.Client{
 			Transport: transport,
 			Timeout:   10 * time.Second,
@@ -67,6 +80,7 @@ func NewSyncClient(serverURL, hostToken, hostname, osInfo string) (*SyncClient, 
 	}
 
 	if err := client.initQueueDB(); err != nil {
+		db.Close()
 		return nil, err
 	}
 	return client, nil
@@ -153,13 +167,9 @@ func DefaultQueuePath() string {
 }
 
 func (s *SyncClient) initQueueDB() error {
-	db, err := sql.Open("sqlite", s.QueueDB)
-	if err != nil {
-		return fmt.Errorf("DB Open failed: %w", err)
-	}
-	defer db.Close()
-
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS offline_findings (
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS offline_findings (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		module_name TEXT NOT NULL,
 		findings_json TEXT NOT NULL,
@@ -222,14 +232,10 @@ func (s *SyncClient) PushResults(ctx context.Context, moduleName string, finding
 }
 
 func (s *SyncClient) FlushOfflineQueue(ctx context.Context) (int, int) {
-	db, err := sql.Open("sqlite", s.QueueDB)
+	s.dbMu.Lock()
+	rows, err := s.db.QueryContext(ctx, "SELECT id, module_name, findings_json FROM offline_findings ORDER BY id ASC LIMIT 50")
 	if err != nil {
-		return 0, 0
-	}
-	defer db.Close()
-
-	rows, err := db.QueryContext(ctx, "SELECT id, module_name, findings_json FROM offline_findings ORDER BY id ASC LIMIT 50")
-	if err != nil {
+		s.dbMu.Unlock()
 		return 0, 0
 	}
 	failed := 0
@@ -248,14 +254,14 @@ func (s *SyncClient) FlushOfflineQueue(ctx context.Context) (int, int) {
 		}
 		queued = append(queued, item)
 	}
+
+	// Hier wurde der sqlrowserr-Fehler behoben: Prüfen von rows.Err() nach der Schleife
 	if err := rows.Err(); err != nil {
-		fmt.Printf("[QUEUE WARN] Fehler während der DB-Iteration: %v\n", err)
 		failed++
 	}
-	if err := rows.Close(); err != nil {
-		fmt.Printf("[QUEUE WARN] Queue-Ergebnismenge konnte nicht geschlossen werden: %v\n", err)
-		return 0, failed + len(queued)
-	}
+
+	_ = rows.Close()
+	s.dbMu.Unlock()
 
 	succeeded := 0
 	for _, item := range queued {
@@ -271,11 +277,15 @@ func (s *SyncClient) FlushOfflineQueue(ctx context.Context) (int, int) {
 		if err == nil && resp.StatusCode == http.StatusOK {
 			s.logResponse("POST /api/v1/sync/results (offline queue)", resp.StatusCode)
 			resp.Body.Close()
-			if _, err := db.ExecContext(ctx, "DELETE FROM offline_findings WHERE id = ?", item.id); err != nil {
+
+			s.dbMu.Lock()
+			if _, err := s.db.ExecContext(ctx, "DELETE FROM offline_findings WHERE id = ?", item.id); err != nil {
 				fmt.Printf("[QUEUE WARN] Übertragenes Ergebnis %d konnte nicht aus der Queue entfernt werden: %v\n", item.id, err)
 				failed++
+				s.dbMu.Unlock()
 				continue
 			}
+			s.dbMu.Unlock()
 			succeeded++
 		} else {
 			if resp != nil {
@@ -298,18 +308,22 @@ func (s *SyncClient) FlushOfflineQueue(ctx context.Context) (int, int) {
 
 func (s *SyncClient) enqueueOffline(moduleName string, payloadJson []byte) {
 	s.checkQueueSizeAndRotate()
-	db, err := sql.Open("sqlite", s.QueueDB)
-	if err != nil {
-		return
-	}
-	defer db.Close()
-	_, _ = db.Exec("INSERT INTO offline_findings (module_name, findings_json) VALUES (?, ?)", moduleName, string(payloadJson))
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+	_, _ = s.db.Exec("INSERT INTO offline_findings (module_name, findings_json) VALUES (?, ?)", moduleName, string(payloadJson))
 }
 
 func (s *SyncClient) checkQueueSizeAndRotate() bool {
+	s.dbMu.Lock()
+	defer s.dbMu.Unlock()
+
 	info, err := os.Stat(s.QueueDB)
 	if err != nil || info.Size() < 50*1024*1024 {
 		return false
+	}
+
+	if s.db != nil {
+		s.db.Close()
 	}
 
 	archiveName := fmt.Sprintf("%s.%d.gz", s.QueueDB, time.Now().Unix())
@@ -323,7 +337,18 @@ func (s *SyncClient) checkQueueSizeAndRotate() bool {
 	src.Close()
 
 	_ = os.Remove(s.QueueDB)
-	_ = s.initQueueDB()
+
+	db, err := sql.Open("sqlite", s.QueueDB)
+	if err == nil {
+		_, _ = db.Exec("PRAGMA journal_mode=WAL;")
+		s.db = db
+		_, _ = s.db.Exec(`CREATE TABLE IF NOT EXISTS offline_findings (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			module_name TEXT NOT NULL,
+			findings_json TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);`)
+	}
 	return true
 }
 

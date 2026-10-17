@@ -34,6 +34,26 @@ try {
     Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }`
 
+// init führt beim Start des Pakets automatisch die Bereinigung verwaister Update-Skripte durch.
+func init() {
+	cleanOrphanedUpdateHelpers()
+}
+
+func cleanOrphanedUpdateHelpers() {
+	execPath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	dir := filepath.Dir(execPath)
+	matches, err := filepath.Glob(filepath.Join(dir, ".aegis-update-*.ps1"))
+	if err != nil {
+		return
+	}
+	for _, match := range matches {
+		_ = os.Remove(match)
+	}
+}
+
 func replaceExecutable(executablePath, stagedPath string) (bool, error) {
 	stagedBinary := executablePath + ".new"
 	if err := os.Remove(stagedBinary); err != nil && !os.IsNotExist(err) {

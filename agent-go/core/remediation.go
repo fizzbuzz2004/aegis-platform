@@ -28,14 +28,15 @@ func AttemptRemediation(ctx context.Context, moduleName string, code string) (bo
 }
 
 func remediateFirewall(ctx context.Context) (bool, string, error) {
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 			"Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True")
 		if err := cmd.Run(); err != nil {
 			return false, "", fmt.Errorf("Windows-Firewall konnte nicht aktiviert werden: %w", err)
 		}
 		return true, "Windows-Firewall-Profile (Domain, Public, Private) wurden automatisch aktiviert.", nil
-	} else if runtime.GOOS == "linux" {
+	case "linux":
 		if path, err := exec.LookPath("ufw"); err == nil {
 			cmd := exec.CommandContext(ctx, path, "--force", "enable")
 			if err := cmd.Run(); err != nil {
