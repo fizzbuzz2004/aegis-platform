@@ -1,4 +1,5 @@
 import secrets
+import json
 import logging
 from typing import List, Optional, Literal
 import pyotp
@@ -18,7 +19,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.module_state import ToggleRequest, TokenResponse
-from app.models.orm import ModuleResult, Tenant, TenantModule, User, UserRole, WebhookConfig
+from app.models.orm import ModuleResult, Tenant, TenantModule, User, UserRole, WebhookConfig, HostDevice
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -286,4 +287,94 @@ def toggle_module(
         "tenant_id": req.tenant_id,
         "module": req.module_name,
         "enabled": req.enable,
+    }
+
+
+# =====================================================================
+# 7. DACH-Compliance, AVV & RMM-Schnittstellen
+# =====================================================================
+
+@router.post("/compliance/avv/sign")
+def sign_avv_agreement(
+    tenant_id: int,
+    company_name: str,
+    signer_email: str,
+    current_user: User = Depends(get_current_tenant_user),
+    db: Session = Depends(get_db)
+):
+    """Ermöglicht den rechtskonformen, digitalen Abschluss des AVV nach Art. 28 DSGVO inklusive Audit-Trail."""
+    assert_tenant_access(current_user, tenant_id)
+    
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mandant nicht gefunden")
+
+    audit_entry = ModuleResult(
+        tenant_id=tenant_id,
+        hostname="control-plane",
+        module_name="dsgvo_avv_audit",
+        findings=json.dumps([{
+            "status": "PASS",
+            "code": "AVV_ACCEPTED",
+            "severity": "INFO",
+            "message": f"AVV nach Art. 28 DSGVO rechtsverbindlich gezeichnet durch {signer_email} für {company_name}.",
+            "compliance": ["DSGVO:Art.28", "ISO27001:A.5.19"]
+        }])
+    )
+    db.add(audit_entry)
+    db.commit()
+    return {"status": "success", "message": "AVV erfolgreich digital abgeschlossen und revisionssicher hinterlegt."}
+
+
+@router.post("/rmm/import")
+def import_rmm_endpoints(
+    payload: dict,
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Importiert Endpunkte und Asset-Metriken gängiger RMM-Lösungen (NinjaOne, Datto RMM, N-able) zur Beschleunigung des Onboardings."""
+    provider = payload.get("provider", "generic")
+    endpoints = payload.get("endpoints", [])
+    tenant_id = payload.get("tenant_id")
+    
+    if not tenant_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Mandanten-ID (tenant_id) im Payload erforderlich")
+        
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mandant nicht gefunden")
+
+    imported_count = 0
+    for ep in endpoints:
+        hostname = ep.get("hostname")
+        os_info = ep.get("os_info", "unknown")
+        if not hostname:
+            continue
+            
+        # Prüfen, ob das Asset bereits existiert, ansonsten automatisch registrieren
+        existing_host = db.query(HostDevice).filter(
+            HostDevice.tenant_id == tenant_id,
+            HostDevice.hostname == hostname
+        ).first()
+        
+        if existing_host:
+            existing_host.os_info = os_info
+        else:
+            new_host = HostDevice(
+                tenant_id=tenant_id,
+                hostname=hostname,
+                os_info=os_info,
+                host_token=f"ath_rmm_{secrets.token_hex(32)}",
+                is_active=True
+            )
+            db.add(new_host)
+            
+        imported_count += 1
+        
+    db.commit()
+    return {
+        "status": "success",
+        "provider": provider,
+        "imported_assets": imported_count,
+        "message": f"{imported_count} RMM-Endpunkte erfolgreich für Mandant {tenant_id} synchronisiert."
     }
