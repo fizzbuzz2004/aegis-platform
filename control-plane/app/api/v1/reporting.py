@@ -35,7 +35,7 @@ def _brand_color(value: str | None):
 
 
 def _logo_image(encoded_logo: str | None):
-    """Validiert und decodiert das Base64-Unternehmenslogo sicher[cite: 27]."""
+    """Validiert und decodiert das Base64-Unternehmenslogo sicher."""
     if not encoded_logo:
         return None
     encoded_logo = encoded_logo.strip()
@@ -58,7 +58,7 @@ def _logo_image(encoded_logo: str | None):
 
 
 def _month_bounds(now: datetime) -> tuple[datetime, datetime]:
-    """Berechnet die UTC-Monatsgrenzen für Monatsreports[cite: 27]."""
+    """Berechnet die UTC-Monatsgrenzen für Monatsreports."""
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     if start.month == 12:
         end = start.replace(year=start.year + 1, month=1)
@@ -68,7 +68,7 @@ def _month_bounds(now: datetime) -> tuple[datetime, datetime]:
 
 
 def _current_results(results: list[ModuleResult]) -> list[ModuleResult]:
-    """Filtert die neuesten Testergebnisse je Host und Modul[cite: 27]."""
+    """Filtert die neuesten Testergebnisse je Host und Modul."""
     latest_by_host_module = {}
     for result in sorted(
         results,
@@ -80,7 +80,7 @@ def _current_results(results: list[ModuleResult]) -> list[ModuleResult]:
 
 
 def _decode_findings(result: ModuleResult) -> list[dict]:
-    """Decodiert Findings aus dem JSON-Datenfeld sicher[cite: 27]."""
+    """Decodiert Findings aus dem JSON-Datenfeld sicher."""
     try:
         findings = json.loads(result.findings)
     except (TypeError, json.JSONDecodeError):
@@ -89,7 +89,7 @@ def _decode_findings(result: ModuleResult) -> list[dict]:
 
 
 def _draw_worm_verification_block(story, tenant_id: int, results: list[ModuleResult], styles):
-    """Integriert den kryptografischen WORM-Head-Hash und einen Verifikations-QR-Code in den PDF-Report[cite: 27]."""
+    """Integriert den kryptografischen WORM-Head-Hash und einen Verifikations-QR-Code in den PDF-Report."""
     worm_results = [r for r in results if r.module_name == "worm_audit"]
     head_hash = "NICHT VERFÜGBAR (Kein Audit-Block)"
     
@@ -136,7 +136,7 @@ def _draw_worm_verification_block(story, tenant_id: int, results: list[ModuleRes
 
 
 def _pdf_report(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleResult], host_scope: str | None = None):
-    """Generiert den vollständigen PDF-Compliance-Bericht mit ReportLab[cite: 27]."""
+    """Generiert den vollständigen PDF-Compliance-Bericht mit ReportLab."""
     now = datetime.now(timezone.utc)
     brand = _brand_color(tenant.brand_color_hex)
     styles = getSampleStyleSheet()
@@ -219,7 +219,7 @@ def _pdf_report(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleRes
         "Dieser Bericht fasst die zuletzt gespeicherten Agent-Prüfergebnisse zusammen. "
         "Scores bewerten ausschließlich Findings mit Status PASS oder FAIL; WARN/INFO werden "
         "separat als Nachweise aufgeführt. Der Bericht ist eine technische Momentaufnahme, "
-        "keine rechtliche Bewertung oder Zertifizierung[cite: 27].",
+        "keine rechtliche Bewertung oder Zertifizierung.",
         styles["AegisBody"],
     ))
     metrics = Table([
@@ -257,7 +257,7 @@ def _pdf_report(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleRes
 
     story.append(Paragraph("Audit-Evidence & Findings", styles["AegisSection"]))
     if not current_res:
-        story.append(Paragraph("Für diesen Scope liegen noch keine Agent-Prüfergebnisse vor[cite: 27].", styles["AegisMuted"]))
+        story.append(Paragraph("Für diesen Scope liegen noch keine Agent-Prüfergebnisse vor.", styles["AegisMuted"]))
         
     for hostname in host_names:
         host_results = sorted(results_by_host.get(hostname, []), key=lambda item: item.module_name)
@@ -305,7 +305,7 @@ def _pdf_report(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleRes
     story.append(Paragraph("Compliance-Mapping (Orientierung)", styles["AegisSection"]))
     story.append(Paragraph(
         "Die Zuordnung unten ist eine Orientierung auf Framework-Ebene. Maßgeblich sind die "
-        "konkreten, vom Agenten gelieferten Referenzen je Finding[cite: 27].",
+        "konkreten, vom Agenten gelieferten Referenzen je Finding.",
         styles["AegisBody"],
     ))
     mapping_rows = [
@@ -339,7 +339,7 @@ def _pdf_report(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleRes
     story.append(Paragraph(
         f"Berichts-ID: AEGIS-{tenant.id}-{now.strftime('%Y%m%d%H%M%S')} | "
         f"Erstellt: {now.strftime('%Y-%m-%d %H:%M:%S UTC')} | "
-        "Datenquelle: zuletzt gespeicherte Ergebnisse je Host und Modul[cite: 27]",
+        "Datenquelle: zuletzt gespeicherte Ergebnisse je Host und Modul",
         styles["AegisMuted"],
     ))
 
@@ -365,7 +365,7 @@ def _pdf_report(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleRes
         canvas.line(18 * mm, 16 * mm, A4[0] - 18 * mm, 16 * mm)
         canvas.setFont("Helvetica", 7)
         canvas.setFillColor(colors.HexColor("#64727c"))
-        footer = tenant.custom_footer or "Vertraulich | Technischer Audit-Bericht – keine rechtliche Zertifizierung[cite: 27]"
+        footer = tenant.custom_footer or "Vertraulich | Technischer Audit-Bericht – keine rechtliche Zertifizierung"
         canvas.drawString(18 * mm, 11 * mm, footer[:145])
         canvas.drawRightString(A4[0] - 18 * mm, 11 * mm, f"Seite {document.page}")
         canvas.restoreState()
@@ -386,7 +386,7 @@ def _pdf_report(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleRes
 
 
 def _report_response(tenant: Tenant, hosts: list[HostDevice], results: list[ModuleResult], host_scope: str | None = None):
-    """Liefert die PDF-Antwort als Stream[cite: 27]."""
+    """Liefert die PDF-Antwort als Stream."""
     if host_scope:
         safe_host = re.sub(r"[^A-Za-z0-9_-]+", "_", host_scope).strip("_") or "host"
         filename = f"Compliance_Report_{tenant.name}_{safe_host}_A4.pdf"
@@ -406,7 +406,7 @@ def generate_tenant_compliance_report(
     current_user: User = Depends(get_current_tenant_user),
     db: Session = Depends(get_db),
 ):
-    """Generiert den vollständigen Mandanten-Compliance-Report[cite: 27]."""
+    """Generiert den vollständigen Mandanten-Compliance-Report."""
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if tenant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mandant nicht gefunden")
@@ -423,7 +423,7 @@ def generate_host_compliance_report(
     current_user: User = Depends(get_current_tenant_user),
     db: Session = Depends(get_db),
 ):
-    """Generiert den Host-spezifischen Compliance-Report[cite: 27]."""
+    """Generiert den Host-spezifischen Compliance-Report."""
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if tenant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mandant nicht gefunden")
@@ -447,7 +447,7 @@ def generate_monthly_compliance_report(
     current_user: User = Depends(get_current_tenant_user),
     db: Session = Depends(get_db),
 ):
-    """Generiert den monatlichen Executive Compliance Audit Report[cite: 27]."""
+    """Generiert den monatlichen Executive Compliance Audit Report."""
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mandant nicht gefunden")
@@ -505,7 +505,7 @@ def generate_monthly_compliance_report(
         canvas.line(18 * mm, 16 * mm, A4[0] - 18 * mm, 16 * mm)
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.HexColor("#64727c"))
-        footer = tenant.custom_footer or "Vertraulich | Technischer Audit-Bericht, keine rechtliche Zertifizierung[cite: 27]"
+        footer = tenant.custom_footer or "Vertraulich | Technischer Audit-Bericht, keine rechtliche Zertifizierung"
         canvas.drawString(18 * mm, 11 * mm, footer[:150])
         canvas.drawRightString(A4[0] - 18 * mm, 11 * mm, f"Seite {document.page}")
         canvas.restoreState()
@@ -539,7 +539,7 @@ def generate_monthly_compliance_report(
     story.append(Paragraph(
         "Dieser Bericht fasst die im Berichtsmonat eingegangenen technischen Agent-Prüfungen "
         "zusammen und ordnet die Findings den gemeldeten NIS2-Art.-21- und ISO/IEC-27001-Kontrollen "
-        "zu[cite: 27].",
+        "zu.",
         styles["BodyText"],
     ))
     score_text = f"{score}%" if score is not None else "Keine bewertbaren Prüfungen"
@@ -599,7 +599,7 @@ def generate_monthly_compliance_report(
 
     report_id = f"AEGIS-{tenant.id}-{now.strftime('%Y%m%d%H%M%S')}"
     story.append(Spacer(1, 3 * mm))
-    story.append(Paragraph(f"Berichts-ID: {report_id} | Berichtszeitraum: {month_start.strftime('%m/%Y')}[cite: 27]", styles["SmallMuted"]))
+    story.append(Paragraph(f"Berichts-ID: {report_id} | Berichtszeitraum: {month_start.strftime('%m/%Y')}", styles["SmallMuted"]))
     document.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
     buffer.seek(0)
 
