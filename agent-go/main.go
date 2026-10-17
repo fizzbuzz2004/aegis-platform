@@ -176,7 +176,30 @@ func main() {
 			fmt.Println("[PUSH OK] worm_audit Ergebnisse übertragen.")
 		}
 
-		// --- DYNAMISCHE AUSFÜHRUNG ALLER REGISTRIERTEN PROBES ---
+		// Aggregator für den abschließenden Compliance-Bericht
+		type ReportItem struct {
+			Module     string
+			Code       string
+			Status     string
+			Severity   string
+			Message    string
+			Compliance []string
+		}
+		var reportItems []ReportItem
+
+		// WORM-Finding in den Bericht aufnehmen
+		for _, wf := range wormFindings {
+			reportItems = append(reportItems, ReportItem{
+				Module:     "worm_audit",
+				Code:       wf.Code,
+				Status:     wf.Status,
+				Severity:   wf.Severity,
+				Message:    wf.Message,
+				Compliance: wf.Compliance,
+			})
+		}
+
+		// --- DYNAMISCHE AUSFÜHRUNG ALLER REGISTRIERTEN PROBES & REMEDIATION ---
 		for modName, enabled := range modules {
 			if !enabled {
 				continue
@@ -188,9 +211,32 @@ func main() {
 			}
 
 			if len(findings) > 0 {
-				for _, f := range findings {
+				for i, f := range findings {
 					_, _ = worm.Log(fmt.Sprintf("AUDIT [%s] %s: %s", modName, f.Status, f.Message))
+
+					// AUTOMATED REMEDIATION (Enforcer-Modus bei Compliance-Verstößen)
+					if f.Status == "FAIL" {
+						success, remediationMsg, remErr := core.AttemptRemediation(ctx, modName, f.Code)
+						if remErr == nil && success {
+							log.Printf("[REMEDIATION SUCCESS] %s (%s): %s", modName, f.Code, remediationMsg)
+							_, _ = worm.Log(fmt.Sprintf("REMEDIATION [%s] SUCCESS: %s (Fix für Code: %s)", modName, remediationMsg, f.Code))
+
+							// Status auf PASS aktualisieren, da automatisch behoben
+							findings[i].Status = "PASS"
+							findings[i].Message = fmt.Sprintf("%s [Auto-Remediated: %s]", f.Message, remediationMsg)
+						}
+					}
+
+					reportItems = append(reportItems, ReportItem{
+						Module:     modName,
+						Code:       f.Code,
+						Status:     findings[i].Status,
+						Severity:   f.Severity,
+						Message:    findings[i].Message,
+						Compliance: f.Compliance,
+					})
 				}
+
 				if err := syncClient.PushResults(ctx, modName, findings); err != nil {
 					fmt.Printf("[PUSH WARN] %s lokal gepuffert: %v\n", modName, err)
 				} else {
@@ -198,6 +244,30 @@ func main() {
 				}
 			}
 		}
+
+		// --- AUSGABE DES FINALS COMPLIANCE-BERICHTS ---
+		fmt.Println("\n==================================================================")
+		fmt.Println("             AEGIS COMPLIANCE & REMEDIATION REPORT                ")
+		fmt.Println("==================================================================")
+		passCount := 0
+		failCount := 0
+		for _, item := range reportItems {
+			icon := "✅"
+			if item.Status == "FAIL" {
+				icon = "❌"
+				failCount++
+			} else {
+				passCount++
+			}
+			fmt.Printf("%s [%s] Modul: %s | Code: %s\n", icon, item.Status, item.Module, item.Code)
+			fmt.Printf("   Meldung: %s\n", item.Message)
+			if len(item.Compliance) > 0 {
+				fmt.Printf("   Compliance: %s\n", strings.Join(item.Compliance, ", "))
+			}
+			fmt.Println("------------------------------------------------------------------")
+		}
+		fmt.Printf("Zusammenfassung: Erfolgreich (PASS): %d | Fehlgeschlagen (FAIL): %d\n", passCount, failCount)
+		fmt.Println("==================================================================\n")
 
 		updated, updateErr := syncClient.CheckAndApplyUpdate(ctx, version, func(event string) {
 			if _, logErr := worm.Log("AUDIT [agent_update] " + event); logErr != nil {
