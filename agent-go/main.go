@@ -54,31 +54,18 @@ func main() {
 		log.Printf("[DEBUG] Agent-Konfiguration: %s; Control Plane: %s; Host-Token vorhanden: %t", core.AgentConfigPath(), serverURLValue, tokenValue != "")
 	}
 
-	// Initialisierung: Host-Token als HMAC-Secret für den WORM Logger sichern
-	hostTokenValue := tokenValue
-	if hostTokenValue == "" {
-		hostTokenValue = "fallback_offline_secret_key"
-	}
+	// -------------------------------------------------------------------------
+	// FIX FÜR FINDING 1: Erzwinge ein echtes, lokales und sicheres WORM-Secret.
+	// Es wird niemals auf unsichere Fallback-Werte zurückgegriffen.
+	// -------------------------------------------------------------------------
 	wormSecret := config.WormSecret
 	if wormSecret == "" {
-		if tokenValue != "" {
-			wormSecret = tokenValue
-		} else {
-			_, statErr := os.Stat(core.DefaultWormLogPath())
-			if statErr == nil {
-				wormSecret = hostTokenValue
-			} else if !os.IsNotExist(statErr) {
-				log.Printf("[FATAL] WORM-Log kann nicht geprüft werden: %v", statErr)
-				os.Exit(1)
-			} else {
-				generatedSecret, secretErr := core.NewWormSecret()
-				if secretErr != nil {
-					log.Printf("[FATAL] %v", secretErr)
-					os.Exit(1)
-				}
-				wormSecret = generatedSecret
-			}
+		generatedSecret, secretErr := core.NewWormSecret()
+		if secretErr != nil {
+			log.Printf("[FATAL] WORM-Schlüssel konnte nicht erzeugt werden: %v", secretErr)
+			os.Exit(1)
 		}
+		wormSecret = generatedSecret
 		config.WormSecret = wormSecret
 		if err := core.SaveAgentConfig(config); err != nil {
 			log.Printf("[FATAL] WORM-Schlüssel kann nicht dauerhaft unter %s gespeichert werden: %v", core.AgentConfigPath(), err)
@@ -102,6 +89,12 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Strikte Durchsetzung: Unregistrierte Agenten dürfen keine Audit-Events in der Kette persistieren.
+	if tokenValue == "" && *enrollCode == "" {
+		log.Printf("[FATAL] Kein Host-Token konfiguriert. Unregistrierte Agenten dürfen keine Audit-Events in der Kette persistieren. Bitte mit -register <enroll_code> registrieren.")
+		os.Exit(1)
+	}
+
 	hostname, _ := os.Hostname()
 	osInfo := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
 
@@ -111,9 +104,7 @@ func main() {
 		os.Exit(1)
 	}
 	syncClient.Debug = *debugFlag
-	if tokenValue == "" && *enrollCode == "" {
-		log.Printf("[AUTH WARN] Kein Host-Token konfiguriert. Agent zuerst mit -register <enroll_code> registrieren.")
-	}
+
 	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && !strings.HasPrefix(strings.ToLower(strings.TrimSpace(serverURLValue)), "https://") {
 		log.Printf("[UPDATE WARN] Auto-Update deaktiviert: Die Control-Plane-URL muss HTTPS verwenden. Sync-Zyklen laufen weiter.")
 	}
@@ -124,6 +115,8 @@ func main() {
 			fmt.Printf("[FATAL] Registrierung fehlgeschlagen: %v\n", err)
 			os.Exit(1)
 		}
+		tokenValue = newToken
+		syncClient.HostToken = newToken
 		if err := core.SaveAgentConfig(core.AgentConfig{HostToken: newToken, ServerURL: serverURLValue, WormSecret: wormSecret}); err != nil {
 			fmt.Printf("[FATAL] Registrierung erfolgreich, Token konnte aber nicht unter %s gespeichert werden: %v\n", core.AgentConfigPath(), err)
 			os.Exit(1)
@@ -176,7 +169,6 @@ func main() {
 			fmt.Println("[PUSH OK] worm_audit Ergebnisse übertragen.")
 		}
 
-		// Aggregator für den abschließenden Compliance-Bericht
 		type ReportItem struct {
 			Module     string
 			Code       string
@@ -187,7 +179,6 @@ func main() {
 		}
 		var reportItems []ReportItem
 
-		// WORM-Finding in den Bericht aufnehmen
 		for _, wf := range wormFindings {
 			reportItems = append(reportItems, ReportItem{
 				Module:     "worm_audit",
@@ -207,21 +198,19 @@ func main() {
 
 			findings, err := probes.RunModule(ctx, modName, pCtx)
 			if err != nil {
-				continue // Modul existiert nicht auf diesem Agenten
+				continue
 			}
 
 			if len(findings) > 0 {
 				for i, f := range findings {
 					_, _ = worm.Log(fmt.Sprintf("AUDIT [%s] %s: %s", modName, f.Status, f.Message))
 
-					// AUTOMATED REMEDIATION (Enforcer-Modus bei Compliance-Verstößen)
 					if f.Status == "FAIL" {
 						success, remediationMsg, remErr := core.AttemptRemediation(ctx, modName, f.Code)
 						if remErr == nil && success {
 							log.Printf("[REMEDIATION SUCCESS] %s (%s): %s", modName, f.Code, remediationMsg)
 							_, _ = worm.Log(fmt.Sprintf("REMEDIATION [%s] SUCCESS: %s (Fix für Code: %s)", modName, remediationMsg, f.Code))
 
-							// Status auf PASS aktualisieren, da automatisch behoben
 							findings[i].Status = "PASS"
 							findings[i].Message = fmt.Sprintf("%s [Auto-Remediated: %s]", f.Message, remediationMsg)
 						}
@@ -245,7 +234,7 @@ func main() {
 			}
 		}
 
-		// --- AUSGABE DES FINALS COMPLIANCE-BERICHTS ---
+		// --- AUSGABE DES FINAL COMPLIANCE-BERICHTS ---
 		fmt.Println("\n==================================================================")
 		fmt.Println("             AEGIS COMPLIANCE & REMEDIATION REPORT                ")
 		fmt.Println("==================================================================")
@@ -290,7 +279,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Graceful Shutdown & Signal Handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 

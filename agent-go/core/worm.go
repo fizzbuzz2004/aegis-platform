@@ -26,6 +26,11 @@ func NewWormLogger(customPath string, secretToken string) (*WormLogger, error) {
 		path = DefaultWormLogPath()
 	}
 
+	// Sicherheitsprüfung: Verhindere unsichere Fallback- oder leere Secrets (Behebung von Finding 1)
+	if secretToken == "" || secretToken == "fallback_offline_secret_key" {
+		return nil, fmt.Errorf("ungültiges oder unsicheres WORM-Secret: Ein kryptografisch abgesichertes Secret ist zwingend erforderlich")
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
