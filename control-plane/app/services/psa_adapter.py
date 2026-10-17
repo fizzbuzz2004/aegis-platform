@@ -1,3 +1,4 @@
+# control-plane/app/services/psa_adapter.py
 import json
 import hmac
 import hashlib
@@ -93,11 +94,22 @@ class PSADispatcher:
         for attempt in range(3):
             try:
                 with urllib.request.urlopen(req, timeout=10) as response:
-                    logger.info(f"PSA Action {action} gesendet. HTTP {response.status}")
-                    success = True
+                    if 200 <= response.status < 300:
+                        logger.info(f"PSA Action {action} gesendet. HTTP {response.status}")
+                        success = True
+                        break
+                    else:
+                        logger.warning(f"PSA Dispatch Versuch {attempt + 1} unerwarteter HTTP-Status: {response.status}")
+            except urllib.error.HTTPError as e:
+                # Client-Fehler (4xx) sofort abbrechen (keine sinnlosen Wiederholungen bei Auth- oder Syntaxfehlern)
+                if 400 <= e.code < 500:
+                    logger.error(f"PSA Dispatch Client-Fehler (HTTP {e.code}): {e.reason}. Keine Wiederholung.")
                     break
+                logger.warning(f"PSA Dispatch Versuch {attempt + 1} fehlgeschlagen (HTTP-Fehler {e.code}): {e.reason}")
             except urllib.error.URLError as e:
-                logger.warning(f"PSA Dispatch Versuch {attempt + 1} fehlgeschlagen: {str(e)}")
+                logger.warning(f"PSA Dispatch Versuch {attempt + 1} Netzwerkfehler: {str(e)}")
+            except Exception as e:
+                logger.warning(f"PSA Dispatch Versuch {attempt + 1} unerwarteter Fehler: {str(e)}")
 
         if not success and db:
             dlq_entry = ModuleResult(
