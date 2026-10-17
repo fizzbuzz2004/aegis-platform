@@ -56,7 +56,6 @@ func main() {
 
 	// -------------------------------------------------------------------------
 	// FIX FÜR FINDING 1: Erzwinge ein echtes, lokales und sicheres WORM-Secret.
-	// Es wird niemals auf unsichere Fallback-Werte zurückgegriffen.
 	// -------------------------------------------------------------------------
 	wormSecret := config.WormSecret
 	if wormSecret == "" {
@@ -89,7 +88,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Strikte Durchsetzung: Unregistrierte Agenten dürfen keine Audit-Events in der Kette persistieren.
 	if tokenValue == "" && *enrollCode == "" {
 		log.Printf("[FATAL] Kein Host-Token konfiguriert. Unregistrierte Agenten dürfen keine Audit-Events in der Kette persistieren. Bitte mit -register <enroll_code> registrieren.")
 		os.Exit(1)
@@ -206,13 +204,21 @@ func main() {
 					_, _ = worm.Log(fmt.Sprintf("AUDIT [%s] %s: %s", modName, f.Status, f.Message))
 
 					if f.Status == "FAIL" {
-						success, remediationMsg, remErr := core.AttemptRemediation(ctx, config.AutoRemediationEnabled, modName, f.Code)
-						if remErr == nil && success {
-							log.Printf("[REMEDIATION SUCCESS] %s (%s): %s", modName, f.Code, remediationMsg)
-							_, _ = worm.Log(fmt.Sprintf("REMEDIATION [%s] SUCCESS: %s (Fix für Code: %s)", modName, remediationMsg, f.Code))
+						if config.AutoRemediationMode == "enforce" {
+							success, remediationMsg, remErr := core.AttemptRemediation(ctx, config.AutoRemediationEnabled, config.AutoRemediationMode, modName, f.Code)
+							if remErr == nil && success {
+								log.Printf("[REMEDIATION ENFORCE SUCCESS] %s (%s): %s", modName, f.Code, remediationMsg)
+								_, _ = worm.Log(fmt.Sprintf("REMEDIATION [%s] ENFORCE SUCCESS: %s (Fix für Code: %s)", modName, remediationMsg, f.Code))
 
-							findings[i].Status = "PASS"
-							findings[i].Message = fmt.Sprintf("%s [Auto-Remediated: %s]", f.Message, remediationMsg)
+								findings[i].Status = "PASS"
+								findings[i].Message = fmt.Sprintf("%s [Auto-Remediated: %s]", f.Message, remediationMsg)
+							} else if remErr != nil {
+								log.Printf("[REMEDIATION ERROR] %s (%s): %v", modName, f.Code, remErr)
+								_, _ = worm.Log(fmt.Sprintf("REMEDIATION [%s] ERROR: %v", modName, remErr))
+							}
+						} else {
+							log.Printf("[REMEDIATION AUDIT] Dry-Run / Audit-Modus aktiv für %s (%s). Keine automatischen Änderungen.", modName, f.Code)
+							_, _ = worm.Log(fmt.Sprintf("REMEDIATION [%s] AUDIT-ONLY: Erkannter Drift gemeldet für Code: %s", modName, f.Code))
 						}
 					}
 
@@ -236,7 +242,7 @@ func main() {
 
 		// --- AUSGABE DES FINAL COMPLIANCE-BERICHTS ---
 		fmt.Println("\n==================================================================")
-		fmt.Println("             AEGIS COMPLIANCE & REMEDIATION REPORT                ")
+		fmt.Println("            AEGIS COMPLIANCE & REMEDIATION REPORT                 ")
 		fmt.Println("==================================================================")
 		passCount := 0
 		failCount := 0
@@ -249,9 +255,9 @@ func main() {
 				passCount++
 			}
 			fmt.Printf("%s [%s] Modul: %s | Code: %s\n", icon, item.Status, item.Module, item.Code)
-			fmt.Printf("   Meldung: %s\n", item.Message)
+			fmt.Printf("  Meldung: %s\n", item.Message)
 			if len(item.Compliance) > 0 {
-				fmt.Printf("   Compliance: %s\n", strings.Join(item.Compliance, ", "))
+				fmt.Printf("  Compliance: %s\n", strings.Join(item.Compliance, ", "))
 			}
 			fmt.Println("------------------------------------------------------------------")
 		}
