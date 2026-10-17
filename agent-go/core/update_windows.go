@@ -20,11 +20,31 @@ try {
     if (Test-Path -LiteralPath $BackupPath) {
         Remove-Item -LiteralPath $BackupPath -Force
     }
-    Move-Item -LiteralPath $ExecutablePath -Destination $BackupPath
+
+    # Robuste Retry-Schleife mit Backoff bei ERROR_ACCESS_DENIED
+    $maxRetries = 3
+    $delaySeconds = 2
+    $moved = $false
+
+    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+        try {
+            Move-Item -LiteralPath $ExecutablePath -Destination $BackupPath -Force
+            $moved = $true
+            break
+        } catch {
+            $isAccessDenied = $_.Exception.Message -like "*Access is denied*" -or $_.FullyQualifiedErrorId -like "*UnauthorizedAccess*"
+            if ($isAccessDenied -and $attempt -lt $maxRetries) {
+                Start-Sleep -Seconds ($delaySeconds * $attempt)
+            } else {
+                if ($attempt -eq $maxRetries) { throw }
+            }
+        }
+    }
+
     try {
-        Move-Item -LiteralPath $StagedPath -Destination $ExecutablePath
+        Move-Item -LiteralPath $StagedPath -Destination $ExecutablePath -Force
     } catch {
-        Move-Item -LiteralPath $BackupPath -Destination $ExecutablePath
+        Move-Item -LiteralPath $BackupPath -Destination $ExecutablePath -Force
         throw
     }
     $ArgumentsJson = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ArgumentsBase64))
