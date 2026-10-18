@@ -42,6 +42,19 @@ def certificate_fingerprint(certificate_der: bytes) -> str:
     return hashlib.sha256(certificate.public_bytes(Encoding.DER)).hexdigest()
 
 
+def extract_fingerprint_from_cert_pem(cert_pem: str | bytes) -> str:
+    """Extracts the SHA256 fingerprint from a PEM-encoded certificate."""
+    if isinstance(cert_pem, str):
+        cert_bytes = cert_pem.encode("utf-8")
+    else:
+        cert_bytes = cert_pem
+    try:
+        certificate = x509.load_pem_x509_certificate(cert_bytes)
+    except ValueError as error:
+        raise ValueError("TLS certificate is not valid PEM X.509") from error
+    return hashlib.sha256(certificate.public_bytes(Encoding.DER)).hexdigest()
+
+
 async def get_client_certificate_fingerprint(request: Request) -> str | None:
     if not settings.AEGIS_MTLS_ENABLED:
         return None
@@ -58,3 +71,13 @@ async def get_client_certificate_fingerprint(request: Request) -> str | None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="TLS client certificate is invalid",
         ) from None
+
+
+def sign_agent_csr_internally(csr_pem: str, tenant_id: int, hostname: str) -> str:
+    """
+    Internal CA handler for signing agent Certificate Signing Requests (CSRs).
+    Returns the PEM-encoded signed certificate.
+    """
+    # TODO: Implement your internal CA signing logic here using your private key.
+    # This stub prevents startup ImportError crashes.
+    raise NotImplementedError("Internal agent CSR signing has not been implemented yet.")
