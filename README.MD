@@ -39,7 +39,7 @@ On each Ubuntu VM:
 ```sh
 sudo apt-get update
 sudo apt-get install -y git
-git clone https://github.com/lschwe04/aegis-platform.git
+git clone https://github.com/fizzbuzz2004/aegis-platform.git
 cd aegis-platform
 ```
 
@@ -47,7 +47,7 @@ On Windows, install Git for Windows if needed, then clone the same repository
 and open PowerShell in the cloned folder:
 
 ```powershell
-git clone https://github.com/lschwe04/aegis-platform.git
+git clone https://github.com/fizzbuzz2004/aegis-platform.git
 Set-Location aegis-platform
 ```
 
