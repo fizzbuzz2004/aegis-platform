@@ -159,3 +159,5 @@ the test database and start over, use `docker compose down -v`.
 Run Go tests from `agent-go` with `go test ./...`; run control-plane tests from
 `control-plane` with `pytest`. `docker-compose.prod.yml` and the RMM deployment
 scripts are separate deployment examples, not part of this VirtualBox test.
+
+Copyright (c) 2026 Lukas Schweiger. All rights reserved
